@@ -49,7 +49,6 @@ python app.py
 ```
 
 ## 기술 스택
-- **Claude Opus 4.6** - 대본 파싱 & 캐릭터 분석
-- **ElevenLabs** - AI 음성 합성 (eleven_multilingual_v2)
+- **OPENAI_API** - 대본 파싱 & 캐릭터 분석, AI 음성 합성 (eleven_multilingual_v2)
 - **FastAPI** - 백엔드 API
 - **Vanilla JS** - 프론트엔드
