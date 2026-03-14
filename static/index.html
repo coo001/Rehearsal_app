@@ -1,0 +1,1078 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>🎭 AI 대본 연습 시스템</title>
+<style>
+  :root {
+    --bg: #0f0f13;
+    --surface: #1a1a24;
+    --surface2: #23232f;
+    --border: #2e2e3e;
+    --accent: #7c6fff;
+    --accent2: #ff6fb0;
+    --text: #e8e8f0;
+    --muted: #888899;
+    --success: #4ade80;
+    --warning: #facc15;
+    --danger: #f87171;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  header h1 { font-size: 1.3rem; font-weight: 700; }
+  header span { color: var(--muted); font-size: 0.9rem; }
+
+  .container { max-width: 900px; margin: 0 auto; padding: 24px; }
+
+  /* 단계 표시 */
+  .steps {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 28px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+  .step-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 0.82rem;
+    white-space: nowrap;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    transition: all 0.2s;
+  }
+  .step-item.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .step-item.done { background: var(--surface2); color: var(--success); border-color: var(--success); }
+  .step-num {
+    width: 18px; height: 18px; border-radius: 50%;
+    background: rgba(255,255,255,0.1);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.7rem; font-weight: 700;
+  }
+  .step-item.active .step-num { background: rgba(255,255,255,0.3); }
+
+  /* 패널 */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+  .panel-title {
+    font-size: 1.05rem;
+    font-weight: 600;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  /* 폼 요소 */
+  textarea {
+    width: 100%;
+    min-height: 220px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    padding: 14px;
+    font-family: 'Consolas', monospace;
+    font-size: 0.88rem;
+    resize: vertical;
+    transition: border 0.2s;
+    line-height: 1.6;
+  }
+  textarea:focus { outline: none; border-color: var(--accent); }
+  select {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    padding: 8px 12px;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: border 0.2s;
+  }
+  select:focus { outline: none; border-color: var(--accent); }
+
+  /* 버튼 */
+  .btn {
+    padding: 10px 22px;
+    border-radius: 8px;
+    border: none;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: #6b5ee8; }
+  .btn-success { background: var(--success); color: #000; }
+  .btn-success:hover:not(:disabled) { background: #3bc76d; }
+  .btn-outline {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+  .btn-outline:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .btn-danger { background: var(--danger); color: #fff; }
+
+  /* 캐릭터 카드 */
+  .character-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px;
+    margin: 16px 0;
+  }
+  .char-card {
+    background: var(--surface2);
+    border: 2px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-align: center;
+  }
+  .char-card:hover { border-color: var(--accent); }
+  .char-card.selected { border-color: var(--accent2); background: rgba(255,111,176,0.08); }
+  .char-card.user-role { border-color: var(--success); background: rgba(74,222,128,0.06); }
+  .char-name { font-weight: 700; font-size: 1rem; margin-bottom: 4px; }
+  .char-desc { font-size: 0.75rem; color: var(--muted); line-height: 1.4; }
+
+  /* 목소리 배정 테이블 */
+  .voice-table { width: 100%; border-collapse: collapse; }
+  .voice-table th, .voice-table td {
+    padding: 10px 14px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.88rem;
+  }
+  .voice-table th { color: var(--muted); font-weight: 500; }
+  .voice-preview-btn {
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 0.78rem;
+    transition: all 0.2s;
+  }
+  .voice-preview-btn:hover { color: var(--accent); border-color: var(--accent); }
+
+  /* 진행 바 */
+  .progress-bar {
+    width: 100%;
+    height: 6px;
+    background: var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+    margin: 12px 0;
+  }
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    border-radius: 3px;
+    transition: width 0.3s;
+  }
+
+  /* 연습 화면 */
+  .rehearsal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .rehearsal-info {
+    display: flex;
+    gap: 16px;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  .rehearsal-info strong { color: var(--text); }
+
+  .script-viewer {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 20px;
+  }
+  .script-line {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.2s;
+  }
+  .script-line:last-child { border-bottom: none; }
+  .script-line.current { background: rgba(124,111,255,0.08); }
+  .script-line.past { opacity: 0.4; }
+  .script-line.upcoming { opacity: 0.6; }
+  .script-line.direction {
+    font-style: italic;
+    color: var(--muted);
+    font-size: 0.85rem;
+    padding: 8px 20px;
+  }
+
+  .line-char-label {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 4px;
+  }
+  .line-char-label.user-char { color: var(--success); }
+  .line-char-label.other-char { color: var(--accent); }
+  .line-text { font-size: 1rem; line-height: 1.6; }
+  .script-line.current .line-text {
+    font-size: 1.1rem;
+  }
+
+  /* 컨트롤 패널 */
+  .control-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .control-buttons { display: flex; gap: 10px; align-items: center; }
+
+  /* 현재 대사 하이라이트 박스 */
+  .current-line-box {
+    background: var(--surface2);
+    border: 2px solid var(--accent);
+    border-radius: 10px;
+    padding: 18px 22px;
+    margin-bottom: 16px;
+    min-height: 80px;
+  }
+  .current-line-box.user-turn { border-color: var(--success); }
+  .current-line-box.direction-turn { border-color: var(--border); }
+  .turn-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+  .turn-badge.ai { background: rgba(124,111,255,0.2); color: var(--accent); }
+  .turn-badge.user { background: rgba(74,222,128,0.2); color: var(--success); }
+  .turn-badge.dir { background: rgba(136,136,153,0.2); color: var(--muted); }
+  .current-text { font-size: 1.15rem; line-height: 1.7; }
+
+  /* 오디오 상태 표시 */
+  .audio-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  .audio-wave {
+    display: flex;
+    gap: 2px;
+    align-items: center;
+    height: 16px;
+  }
+  .audio-wave .bar {
+    width: 3px;
+    background: var(--accent);
+    border-radius: 2px;
+    animation: wave 0.8s ease-in-out infinite;
+  }
+  .audio-wave .bar:nth-child(2) { animation-delay: 0.1s; }
+  .audio-wave .bar:nth-child(3) { animation-delay: 0.2s; }
+  .audio-wave .bar:nth-child(4) { animation-delay: 0.3s; }
+  @keyframes wave {
+    0%, 100% { height: 4px; }
+    50% { height: 14px; }
+  }
+  .audio-wave.hidden { display: none; }
+
+  /* 로딩 스피너 */
+  .spinner {
+    display: inline-block;
+    width: 16px; height: 16px;
+    border: 2px solid rgba(124,111,255,0.3);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* 알림 */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 18px;
+    max-width: 320px;
+    font-size: 0.88rem;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    z-index: 999;
+    transform: translateY(80px);
+    opacity: 0;
+    transition: all 0.3s;
+  }
+  .toast.show { transform: translateY(0); opacity: 1; }
+  .toast.error { border-color: var(--danger); }
+  .toast.success { border-color: var(--success); }
+
+  /* 숨김 */
+  .hidden { display: none !important; }
+
+  /* 줄 구분 */
+  .divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+
+  /* 진행률 텍스트 */
+  .gen-status { font-size: 0.85rem; color: var(--muted); margin-top: 8px; }
+
+  /* 샘플 버튼 */
+  .sample-btn-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+
+<header>
+  <span style="font-size:1.5rem">🎭</span>
+  <h1>AI 대본 연습 시스템</h1>
+  <span>GPT-4o + OpenAI TTS</span>
+</header>
+
+<div class="container">
+
+  <!-- 단계 표시 -->
+  <div class="steps">
+    <div class="step-item active" id="step-1">
+      <span class="step-num">1</span> 대본 입력
+    </div>
+    <div class="step-item" id="step-2">
+      <span class="step-num">2</span> 캐릭터 분석
+    </div>
+    <div class="step-item" id="step-3">
+      <span class="step-num">3</span> 목소리 배정
+    </div>
+    <div class="step-item" id="step-4">
+      <span class="step-num">4</span> 음성 생성
+    </div>
+    <div class="step-item" id="step-5">
+      <span class="step-num">5</span> 연습 시작
+    </div>
+  </div>
+
+  <!-- ── 1단계: 대본 입력 ── -->
+  <div id="phase-input">
+    <div class="panel">
+      <div class="panel-title">📝 대본 붙여넣기</div>
+
+      <div class="sample-btn-row">
+        <button class="btn btn-outline" onclick="loadSample('korean')">
+          샘플 대본 불러오기 (한국어)
+        </button>
+        <button class="btn btn-outline" onclick="loadSample('english')">
+          Sample Script (English)
+        </button>
+      </div>
+
+      <textarea id="script-input" placeholder="대본을 여기에 붙여넣으세요.
+
+예시 형식:
+캐릭터A
+안녕하세요, 처음 뵙겠습니다.
+
+캐릭터B
+반갑습니다! 오래 기다리셨나요?
+
+[두 사람이 악수한다]
+
+캐릭터A
+아니요, 방금 도착했어요."></textarea>
+
+      <div style="margin-top: 14px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+        <button class="btn btn-primary" id="parse-btn" onclick="parseScript()">
+          <span id="parse-btn-text">🔍 AI 대본 분석</span>
+        </button>
+        <span id="parse-status" class="audio-status hidden">
+          <span class="spinner"></span> GPT-4o가 대본을 분석 중...
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 2단계: 캐릭터 확인 & 내 역할 선택 ── -->
+  <div id="phase-characters" class="hidden">
+    <div class="panel">
+      <div class="panel-title">👥 등장인물 분석 결과</div>
+      <div id="script-title" style="color:var(--muted); margin-bottom:14px; font-size:0.9rem;"></div>
+      <p style="font-size:0.88rem; color:var(--muted); margin-bottom:14px;">
+        연습할 <strong style="color:var(--text)">내 역할</strong>을 선택하세요. 선택한 역할의 대사는 직접 읽고, 나머지 캐릭터는 AI 음성으로 재생됩니다.
+      </p>
+      <div class="character-grid" id="character-grid"></div>
+      <div id="selected-char-info" class="hidden" style="margin-top:16px; padding:12px; background:rgba(74,222,128,0.06); border:1px solid var(--success); border-radius:8px; font-size:0.88rem; color:var(--success);">
+      </div>
+      <div style="margin-top:16px; display:flex; gap:10px; flex-wrap:wrap;">
+        <button class="btn btn-outline" onclick="goBack(1)">← 대본 수정</button>
+        <button class="btn btn-primary" id="next-to-voices" onclick="goToVoices()" disabled>
+          목소리 배정 →
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 3단계: 목소리 배정 ── -->
+  <div id="phase-voices" class="hidden">
+    <div class="panel">
+      <div class="panel-title">🎙️ 캐릭터별 목소리 선택</div>
+      <p style="font-size:0.88rem; color:var(--muted); margin-bottom:16px;">
+        각 캐릭터에 사용할 ElevenLabs 목소리를 선택하세요.
+      </p>
+      <div id="voices-loading" class="audio-status">
+        <span class="spinner"></span> 목소리 목록 불러오는 중...
+      </div>
+      <table class="voice-table hidden" id="voice-table">
+        <thead>
+          <tr>
+            <th>캐릭터</th>
+            <th>역할</th>
+            <th>목소리 선택</th>
+            <th>미리듣기</th>
+          </tr>
+        </thead>
+        <tbody id="voice-table-body"></tbody>
+      </table>
+      <div style="margin-top:20px; display:flex; gap:10px; flex-wrap:wrap;">
+        <button class="btn btn-outline" onclick="goBack(2)">← 역할 선택</button>
+        <button class="btn btn-primary" onclick="startGeneration()">
+          🎵 음성 생성 시작 →
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 4단계: 음성 생성 ── -->
+  <div id="phase-generating" class="hidden">
+    <div class="panel">
+      <div class="panel-title">⚙️ AI 음성 생성 중</div>
+      <p style="font-size:0.88rem; color:var(--muted); margin-bottom:16px;">
+        상대방 캐릭터들의 대사 음성을 생성하고 있습니다. 잠시만 기다려주세요.
+      </p>
+      <div class="progress-bar">
+        <div class="progress-fill" id="gen-progress" style="width:0%"></div>
+      </div>
+      <div class="gen-status" id="gen-status">준비 중...</div>
+    </div>
+  </div>
+
+  <!-- ── 5단계: 연습 ── -->
+  <div id="phase-rehearsal" class="hidden">
+    <div class="rehearsal-header">
+      <div>
+        <div class="panel-title" style="margin-bottom:4px;">🎬 연습 모드</div>
+        <div class="rehearsal-info">
+          <span>내 역할: <strong id="my-role-label"></strong></span>
+          <span id="line-counter">0 / 0</span>
+        </div>
+      </div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn btn-outline" onclick="restartRehearsal()">🔄 처음부터</button>
+        <button class="btn btn-outline" onclick="goBack(1)">새 대본</button>
+      </div>
+    </div>
+
+    <!-- 현재 대사 박스 -->
+    <div class="current-line-box" id="current-box">
+      <div class="turn-badge" id="current-badge"></div>
+      <div class="current-text" id="current-text">연습을 시작하려면 아래 버튼을 누르세요.</div>
+    </div>
+
+    <!-- 오디오 상태 -->
+    <div class="audio-status" id="audio-status" style="margin-bottom:14px;">
+      <div class="audio-wave hidden" id="audio-wave">
+        <div class="bar"></div><div class="bar"></div>
+        <div class="bar"></div><div class="bar"></div>
+      </div>
+      <span id="audio-status-text"></span>
+    </div>
+
+    <!-- 컨트롤 -->
+    <div class="control-panel">
+      <div class="control-buttons">
+        <button class="btn btn-outline" id="btn-prev" onclick="navigate(-1)">◀ 이전</button>
+        <button class="btn btn-primary" id="btn-play" onclick="playCurrentLine()" style="min-width:120px;">
+          ▶ 재생
+        </button>
+        <button class="btn btn-outline" id="btn-next" onclick="navigate(1)">다음 ▶</button>
+      </div>
+      <div style="font-size:0.83rem; color:var(--muted);">
+        <span id="auto-advance-hint"></span>
+      </div>
+    </div>
+
+    <hr class="divider" style="margin: 20px 0;" />
+
+    <!-- 전체 대본 스크롤 뷰 -->
+    <div class="panel">
+      <div class="panel-title" style="margin-bottom:12px; font-size:0.9rem; color:var(--muted);">전체 대본</div>
+      <div class="script-viewer" id="script-viewer"></div>
+    </div>
+  </div>
+
+</div><!-- /container -->
+
+<!-- 토스트 알림 -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ── 전역 상태 ──────────────────────────────────────────────
+let parsedScript = null;     // { title, characters, character_descriptions, lines }
+let userCharacter = null;    // 내가 선택한 캐릭터명
+let voiceAssignments = {};   // { charName: voice_id }
+let availableVoices = [];    // ElevenLabs 목소리 목록
+let sessionId = null;
+let audioMap = {};           // { lineIndex: "/audio/.../line_N.mp3" }
+let currentLineIndex = 0;
+let currentAudio = null;
+let isPlaying = false;
+
+// ── 샘플 대본 ──────────────────────────────────────────────
+const SAMPLES = {
+  korean: `[장소: 카페. 테이블에 앉은 지수와 민준]
+
+지수
+(커피를 마시며) 어제 그 영화 봤어? 정말 최고였잖아.
+
+민준
+아, 나는 아직 못 봤어. 스포 하지 마!
+
+지수
+(웃으며) 알았어, 알았어. 그런데 진짜로 꼭 봐야 해.
+
+민준
+주말에 같이 볼래? 너 시간 돼?
+
+지수
+(잠시 생각하다) 토요일 오후는 괜찮아. 2시 어때?
+
+민준
+좋아! 그럼 같은 카페 앞에서 만나자.
+
+[두 사람이 약속을 잡고 커피를 마신다]
+
+지수
+근데 요즘 어때? 회사는 좀 나아졌어?
+
+민준
+(한숨을 쉬며) 솔직히... 아직 힘들어. 상사가 너무 까다롭거든.
+
+지수
+힘내. 네가 할 수 있어.`,
+  english: `[Scene: A coffee shop. ALEX and JAMIE are sitting across from each other.]
+
+ALEX
+(looking at phone) You're late. Again.
+
+JAMIE
+(rushing in) I know, I know! The traffic was insane.
+
+ALEX
+It's always something with you, isn't it?
+
+JAMIE
+(sitting down) Come on, don't be like that. I brought you your favorite muffin.
+
+ALEX
+(softening) ...A blueberry one?
+
+JAMIE
+(grinning) Obviously.
+
+[ALEX takes the muffin and smiles despite themselves]
+
+ALEX
+Fine. You're forgiven. This time.
+
+JAMIE
+So, did you hear about the project? They picked our team!
+
+ALEX
+(shocked) Seriously? We actually got it?
+
+JAMIE
+I told you we would. You never believe me.
+
+ALEX
+(laughing) Okay, okay. You were right. Happy?
+
+JAMIE
+Extremely.`
+};
+
+function loadSample(lang) {
+  document.getElementById('script-input').value = SAMPLES[lang];
+  showToast('샘플 대본을 불러왔습니다.', 'success');
+}
+
+// ── 유틸 ──────────────────────────────────────────────────
+function showToast(msg, type = '') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = `toast show ${type}`;
+  setTimeout(() => t.className = 'toast', 3000);
+}
+
+function setStep(active) {
+  for (let i = 1; i <= 5; i++) {
+    const el = document.getElementById(`step-${i}`);
+    el.classList.remove('active', 'done');
+    if (i < active) el.classList.add('done');
+    else if (i === active) el.classList.add('active');
+  }
+}
+
+function showPhase(phase) {
+  ['input','characters','voices','generating','rehearsal'].forEach(p => {
+    document.getElementById(`phase-${p}`).classList.add('hidden');
+  });
+  document.getElementById(`phase-${phase}`).classList.remove('hidden');
+}
+
+// ── 1단계: 대본 파싱 ──────────────────────────────────────
+async function parseScript() {
+  const script = document.getElementById('script-input').value.trim();
+  if (!script) { showToast('대본을 입력해주세요.', 'error'); return; }
+
+  const btn = document.getElementById('parse-btn');
+  const status = document.getElementById('parse-status');
+  btn.disabled = true;
+  status.classList.remove('hidden');
+
+  try {
+    const res = await fetch('/api/parse-script', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ script })
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || '파싱 실패');
+    }
+    parsedScript = await res.json();
+    renderCharacters();
+    setStep(2);
+    showPhase('characters');
+    showToast(`${parsedScript.characters.length}명의 캐릭터를 분석했습니다!`, 'success');
+  } catch (e) {
+    showToast(`오류: ${e.message}`, 'error');
+  } finally {
+    btn.disabled = false;
+    status.classList.add('hidden');
+  }
+}
+
+// ── 2단계: 캐릭터 선택 ────────────────────────────────────
+function renderCharacters() {
+  const titleEl = document.getElementById('script-title');
+  titleEl.textContent = parsedScript.title ? `📖 ${parsedScript.title}` : '';
+
+  const grid = document.getElementById('character-grid');
+  grid.innerHTML = '';
+
+  parsedScript.characters.forEach(char => {
+    const desc = parsedScript.character_descriptions?.[char] || '';
+    const card = document.createElement('div');
+    card.className = 'char-card';
+    card.innerHTML = `
+      <div class="char-name">${char}</div>
+      <div class="char-desc">${desc}</div>
+    `;
+    card.onclick = () => selectCharacter(char, card);
+    grid.appendChild(card);
+  });
+}
+
+function selectCharacter(char, card) {
+  document.querySelectorAll('.char-card').forEach(c => c.classList.remove('selected'));
+  card.classList.add('selected');
+  userCharacter = char;
+
+  const info = document.getElementById('selected-char-info');
+  info.classList.remove('hidden');
+  info.innerHTML = `✅ <strong>${char}</strong> 역할로 연습합니다. 이 캐릭터의 대사는 직접 읽고, 나머지는 AI 음성으로 재생됩니다.`;
+
+  document.getElementById('next-to-voices').disabled = false;
+}
+
+// ── 3단계: 목소리 배정 ────────────────────────────────────
+async function goToVoices() {
+  if (!userCharacter) { showToast('역할을 선택해주세요.', 'error'); return; }
+  setStep(3);
+  showPhase('voices');
+  await loadVoices();
+}
+
+async function loadVoices() {
+  try {
+    const res = await fetch('/api/voices');
+    if (!res.ok) throw new Error('목소리 목록 불러오기 실패');
+    const data = await res.json();
+    availableVoices = data.voices;
+    renderVoiceTable();
+  } catch (e) {
+    showToast(`오류: ${e.message}`, 'error');
+  }
+}
+
+function renderVoiceTable() {
+  const loading = document.getElementById('voices-loading');
+  const table = document.getElementById('voice-table');
+  loading.classList.add('hidden');
+  table.classList.remove('hidden');
+
+  const tbody = document.getElementById('voice-table-body');
+  tbody.innerHTML = '';
+
+  const otherChars = parsedScript.characters.filter(c => c !== userCharacter);
+
+  // 기본 목소리 자동 배정 (순환)
+  const defaultVoices = availableVoices.slice(0, 10);
+  otherChars.forEach((char, i) => {
+    if (!voiceAssignments[char] && defaultVoices[i % defaultVoices.length]) {
+      voiceAssignments[char] = defaultVoices[i % defaultVoices.length].voice_id;
+    }
+  });
+
+  otherChars.forEach(char => {
+    const tr = document.createElement('tr');
+    const isUser = char === userCharacter;
+
+    const selectOpts = availableVoices.map(v =>
+      `<option value="${v.voice_id}" ${voiceAssignments[char] === v.voice_id ? 'selected' : ''}>
+        ${v.name} (${v.category || 'premade'})
+      </option>`
+    ).join('');
+
+    tr.innerHTML = `
+      <td><strong>${char}</strong></td>
+      <td style="color:var(--muted); font-size:0.82rem;">AI 음성</td>
+      <td>
+        <select id="voice-select-${char.replace(/\s/g,'_')}"
+                onchange="voiceAssignments['${char}'] = this.value"
+                style="max-width:220px;">
+          ${selectOpts}
+        </select>
+      </td>
+      <td>
+        <button class="voice-preview-btn" onclick="previewVoice('${char}')">▶ 미리듣기</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  if (otherChars.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="4" style="color:var(--muted); text-align:center; padding:20px;">
+      1인극이거나 다른 캐릭터가 없습니다.
+    </td></tr>`;
+  }
+}
+
+async function previewVoice(char) {
+  const vid = voiceAssignments[char];
+  if (!vid) return;
+  // OpenAI TTS로 짧은 샘플 생성
+  const previewText = `안녕하세요, 저는 ${char}입니다.`;
+  const tempSession = 'preview_' + Date.now();
+  const res = await fetch('/api/generate-line', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ text: previewText, voice_id: vid, session_id: tempSession, line_index: 0 })
+  });
+  if (res.ok) {
+    const data = await res.json();
+    new Audio(data.audio_url).play();
+  } else {
+    showToast('미리듣기 생성 실패', 'error');
+  }
+}
+
+// ── 4단계: 음성 생성 ──────────────────────────────────────
+async function startGeneration() {
+  setStep(4);
+  showPhase('generating');
+
+  const nonUserLines = parsedScript.lines.filter(
+    (l, i) => l.type === 'dialogue' && l.character !== userCharacter
+  );
+  const total = nonUserLines.length;
+
+  if (total === 0) {
+    // 사용자 대사만 있는 경우 바로 연습으로
+    startRehearsal();
+    return;
+  }
+
+  const statusEl = document.getElementById('gen-status');
+  const progressEl = document.getElementById('gen-progress');
+
+  statusEl.textContent = '서버에 요청 중...';
+
+  try {
+    const res = await fetch('/api/generate-rehearsal', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        lines: parsedScript.lines,
+        voice_assignments: voiceAssignments,
+        user_character: userCharacter,
+      })
+    });
+
+    if (!res.ok) throw new Error('음성 생성 요청 실패');
+    const data = await res.json();
+    sessionId = data.session_id;
+    audioMap = data.audio_map;
+
+    // 진행률 업데이트
+    const generatedCount = Object.keys(audioMap).length;
+    const pct = total > 0 ? Math.round(generatedCount / total * 100) : 100;
+    progressEl.style.width = `${pct}%`;
+    statusEl.textContent = `${generatedCount}/${total}개 음성 생성 완료`;
+
+    setTimeout(() => {
+      setStep(5);
+      startRehearsal();
+    }, 800);
+
+  } catch (e) {
+    showToast(`음성 생성 오류: ${e.message}`, 'error');
+    setStep(3);
+    showPhase('voices');
+  }
+}
+
+// ── 5단계: 연습 ───────────────────────────────────────────
+function startRehearsal() {
+  showPhase('rehearsal');
+
+  document.getElementById('my-role-label').textContent = userCharacter;
+
+  // 스크롤 뷰 렌더링
+  const viewer = document.getElementById('script-viewer');
+  viewer.innerHTML = '';
+  parsedScript.lines.forEach((line, i) => {
+    const div = document.createElement('div');
+    div.id = `script-line-${i}`;
+    if (line.type === 'direction') {
+      div.className = 'script-line direction';
+      div.textContent = line.text;
+    } else {
+      const isUser = line.character === userCharacter;
+      div.className = 'script-line upcoming';
+      div.innerHTML = `
+        <div class="line-char-label ${isUser ? 'user-char' : 'other-char'}">
+          ${line.character}${isUser ? ' (나)' : ''}
+        </div>
+        <div class="line-text">${line.text}</div>
+      `;
+    }
+    viewer.appendChild(div);
+  });
+
+  currentLineIndex = 0;
+  updateDisplay();
+}
+
+function updateDisplay() {
+  const lines = parsedScript.lines;
+  const total = lines.length;
+
+  document.getElementById('line-counter').textContent =
+    `${Math.min(currentLineIndex + 1, total)} / ${total}`;
+
+  // 스크롤 뷰 업데이트
+  lines.forEach((_, i) => {
+    const el = document.getElementById(`script-line-${i}`);
+    if (!el) return;
+    el.classList.remove('current', 'past', 'upcoming');
+    if (i < currentLineIndex) el.classList.add('past');
+    else if (i === currentLineIndex) el.classList.add('current');
+    else el.classList.add('upcoming');
+  });
+
+  // 현재 라인 스크롤
+  const currentEl = document.getElementById(`script-line-${currentLineIndex}`);
+  if (currentEl) currentEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  // 현재 대사 박스 업데이트
+  if (currentLineIndex >= total) {
+    document.getElementById('current-box').className = 'current-line-box';
+    document.getElementById('current-badge').textContent = '🎉 연습 완료';
+    document.getElementById('current-badge').className = 'turn-badge dir';
+    document.getElementById('current-text').textContent = '모든 대사 연습이 끝났습니다! 처음부터 다시 연습하거나 새 대본을 불러오세요.';
+    document.getElementById('btn-play').disabled = true;
+    document.getElementById('btn-next').disabled = true;
+    return;
+  }
+
+  const line = lines[currentLineIndex];
+  const box = document.getElementById('current-box');
+  const badge = document.getElementById('current-badge');
+  const textEl = document.getElementById('current-text');
+  const playBtn = document.getElementById('btn-play');
+  const hintEl = document.getElementById('auto-advance-hint');
+
+  if (line.type === 'direction') {
+    box.className = 'current-line-box direction-turn';
+    badge.className = 'turn-badge dir';
+    badge.textContent = '📍 무대 지문';
+    textEl.textContent = line.text;
+    playBtn.textContent = '다음으로 ▶';
+    playBtn.disabled = false;
+    hintEl.textContent = '';
+  } else if (line.character === userCharacter) {
+    box.className = 'current-line-box user-turn';
+    badge.className = 'turn-badge user';
+    badge.textContent = `🎤 내 대사 (${userCharacter})`;
+    textEl.textContent = line.text;
+    playBtn.textContent = '✓ 읽었어요 →';
+    playBtn.disabled = false;
+    hintEl.textContent = '위 대사를 읽은 후 버튼을 누르세요.';
+  } else {
+    box.className = 'current-line-box';
+    badge.className = 'turn-badge ai';
+    badge.textContent = `🤖 ${line.character}의 대사`;
+    textEl.textContent = line.text;
+    playBtn.textContent = '▶ 재생';
+    playBtn.disabled = false;
+
+    const hasAudio = audioMap[currentLineIndex] != null;
+    hintEl.textContent = hasAudio ? '재생 버튼을 눌러 AI 음성을 들으세요.' : '(음성 없음) 재생 버튼으로 다음으로 넘어갑니다.';
+  }
+
+  document.getElementById('btn-prev').disabled = currentLineIndex === 0;
+  document.getElementById('btn-next').disabled = currentLineIndex >= total - 1;
+}
+
+async function playCurrentLine() {
+  const lines = parsedScript.lines;
+  if (currentLineIndex >= lines.length) return;
+
+  const line = lines[currentLineIndex];
+
+  if (line.type === 'direction') {
+    navigate(1);
+    return;
+  }
+  if (line.character === userCharacter) {
+    navigate(1);
+    return;
+  }
+
+  // AI 대사 재생
+  const audioUrl = audioMap[currentLineIndex];
+  if (!audioUrl) {
+    // 음성 없으면 그냥 넘어감
+    navigate(1);
+    return;
+  }
+
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio = null;
+  }
+
+  setAudioStatus(true, `${line.character} 재생 중...`);
+  document.getElementById('btn-play').disabled = true;
+
+  currentAudio = new Audio(audioUrl);
+  currentAudio.onended = () => {
+    setAudioStatus(false, '');
+    document.getElementById('btn-play').disabled = false;
+    document.getElementById('btn-play').textContent = '▶ 다시 재생';
+    // 자동으로 다음으로
+    setTimeout(() => navigate(1), 600);
+  };
+  currentAudio.onerror = () => {
+    setAudioStatus(false, '');
+    showToast('음성 재생 실패', 'error');
+    document.getElementById('btn-play').disabled = false;
+  };
+  currentAudio.play().catch(e => {
+    setAudioStatus(false, '');
+    showToast('재생 오류: ' + e.message, 'error');
+    document.getElementById('btn-play').disabled = false;
+  });
+}
+
+function setAudioStatus(active, text) {
+  const wave = document.getElementById('audio-wave');
+  const statusText = document.getElementById('audio-status-text');
+  if (active) {
+    wave.classList.remove('hidden');
+  } else {
+    wave.classList.add('hidden');
+  }
+  statusText.textContent = text;
+}
+
+function navigate(dir) {
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio = null;
+    setAudioStatus(false, '');
+  }
+
+  const newIdx = currentLineIndex + dir;
+  if (newIdx < 0 || newIdx > parsedScript.lines.length) return;
+  currentLineIndex = newIdx;
+  updateDisplay();
+}
+
+function restartRehearsal() {
+  if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+  currentLineIndex = 0;
+  updateDisplay();
+  showToast('처음부터 다시 시작합니다.', 'success');
+}
+
+// ── 뒤로 가기 ────────────────────────────────────────────
+function goBack(toStep) {
+  if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+  const phases = ['input', 'characters', 'voices', 'generating', 'rehearsal'];
+  setStep(toStep);
+  showPhase(phases[toStep - 1]);
+}
+</script>
+</body>
+</html>

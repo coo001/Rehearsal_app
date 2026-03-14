@@ -1,0 +1,18 @@
+# 환경 변수 (절대 올리지 않음)
+.env
+
+# 생성된 오디오 파일
+audio/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
