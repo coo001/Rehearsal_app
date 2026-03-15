@@ -456,7 +456,7 @@
     <div class="panel">
       <div class="panel-title">🎙️ 캐릭터별 목소리 선택</div>
       <p style="font-size:0.88rem; color:var(--muted); margin-bottom:16px;">
-        각 캐릭터에 사용할 ElevenLabs 목소리를 선택하세요.
+        각 캐릭터에 사용할 목소리를 선택하세요. AI가 캐릭터 특성에 맞춰 자동으로 배정할 수도 있습니다.
       </p>
       <div id="voices-loading" class="audio-status">
         <span class="spinner"></span> 목소리 목록 불러오는 중...
@@ -474,6 +474,9 @@
       </table>
       <div style="margin-top:20px; display:flex; gap:10px; flex-wrap:wrap;">
         <button class="btn btn-outline" onclick="goBack(2)">← 역할 선택</button>
+        <button class="btn btn-outline" id="auto-assign-btn" onclick="autoAssignVoices()">
+          <span id="auto-assign-text">🤖 AI 자동 배정</span>
+        </button>
         <button class="btn btn-primary" onclick="startGeneration()">
           🎵 음성 생성 시작 →
         </button>
@@ -505,9 +508,13 @@
           <span id="line-counter">0 / 0</span>
         </div>
       </div>
-      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
         <button class="btn btn-outline" onclick="restartRehearsal()">🔄 처음부터</button>
         <button class="btn btn-outline" onclick="goBack(1)">새 대본</button>
+        <button class="btn btn-outline" id="auto-advance-toggle" onclick="toggleAutoAdvance()"
+                style="border-color:var(--muted);">
+          ⏸ 수동 진행
+        </button>
       </div>
     </div>
 
@@ -515,6 +522,14 @@
     <div class="current-line-box" id="current-box">
       <div class="turn-badge" id="current-badge"></div>
       <div class="current-text" id="current-text">연습을 시작하려면 아래 버튼을 누르세요.</div>
+    </div>
+
+    <!-- 카운트다운 바 (자동 진행 시) -->
+    <div id="countdown-bar-wrap" class="hidden" style="margin-bottom:10px;">
+      <div style="font-size:0.78rem; color:var(--muted); margin-bottom:4px;" id="countdown-label"></div>
+      <div style="width:100%; height:4px; background:var(--border); border-radius:2px; overflow:hidden;">
+        <div id="countdown-bar" style="height:100%; background:linear-gradient(90deg,var(--accent),var(--accent2)); width:100%; transition:width linear;"></div>
+      </div>
     </div>
 
     <!-- 오디오 상태 -->
@@ -557,14 +572,15 @@
 <script>
 // ── 전역 상태 ──────────────────────────────────────────────
 let parsedScript = null;     // { title, characters, character_descriptions, lines }
-let userCharacter = null;    // 내가 선택한 캐릭터명
-let voiceAssignments = {};   // { charName: voice_id }
-let availableVoices = [];    // ElevenLabs 목소리 목록
+let userCharacter = null;
+let voiceAssignments = {};
+let availableVoices = [];
 let sessionId = null;
-let audioMap = {};           // { lineIndex: "/audio/.../line_N.mp3" }
+let audioMap = {};
 let currentLineIndex = 0;
 let currentAudio = null;
-let isPlaying = false;
+let autoAdvance = false;     // 자동 진행 여부
+let countdownTimer = null;   // 자동 진행 타이머
 
 // ── 샘플 대본 ──────────────────────────────────────────────
 const SAMPLES = {
@@ -775,11 +791,11 @@ function renderVoiceTable() {
 
   otherChars.forEach(char => {
     const tr = document.createElement('tr');
-    const isUser = char === userCharacter;
+    tr.id = `voice-row-${char.replace(/\s/g,'_')}`;
 
     const selectOpts = availableVoices.map(v =>
       `<option value="${v.voice_id}" ${voiceAssignments[char] === v.voice_id ? 'selected' : ''}>
-        ${v.name} (${v.category || 'premade'})
+        ${v.name} — ${v.gender} | ${v.description}
       </option>`
     ).join('');
 
@@ -789,7 +805,7 @@ function renderVoiceTable() {
       <td>
         <select id="voice-select-${char.replace(/\s/g,'_')}"
                 onchange="voiceAssignments['${char}'] = this.value"
-                style="max-width:220px;">
+                style="max-width:260px;">
           ${selectOpts}
         </select>
       </td>
@@ -810,19 +826,61 @@ function renderVoiceTable() {
 async function previewVoice(char) {
   const vid = voiceAssignments[char];
   if (!vid) return;
-  // OpenAI TTS로 짧은 샘플 생성
   const previewText = `안녕하세요, 저는 ${char}입니다.`;
+  const desc = parsedScript?.character_descriptions?.[char] || '';
   const tempSession = 'preview_' + Date.now();
   const res = await fetch('/api/generate-line', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ text: previewText, voice_id: vid, session_id: tempSession, line_index: 0 })
+    body: JSON.stringify({
+      text: previewText, voice_id: vid,
+      session_id: tempSession, line_index: 0,
+      character_description: desc,
+      emotion: '밝고 자신감 있게 인사하듯',
+    })
   });
   if (res.ok) {
     const data = await res.json();
     new Audio(data.audio_url).play();
   } else {
     showToast('미리듣기 생성 실패', 'error');
+  }
+}
+
+// ── AI 자동 목소리 배정 ───────────────────────────────────
+async function autoAssignVoices() {
+  const otherChars = parsedScript.characters.filter(c => c !== userCharacter);
+  if (!otherChars.length) return;
+
+  const btn = document.getElementById('auto-assign-btn');
+  const txt = document.getElementById('auto-assign-text');
+  btn.disabled = true;
+  txt.innerHTML = '<span class="spinner"></span> AI 배정 중...';
+
+  try {
+    const res = await fetch('/api/auto-assign-voices', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        characters: otherChars,
+        character_descriptions: parsedScript.character_descriptions || {},
+      })
+    });
+    if (!res.ok) throw new Error('자동 배정 실패');
+    const data = await res.json();
+
+    // 배정 결과 적용 및 드롭다운 업데이트
+    Object.entries(data.assignments).forEach(([char, voiceId]) => {
+      voiceAssignments[char] = voiceId;
+      const sel = document.getElementById(`voice-select-${char.replace(/\s/g,'_')}`);
+      if (sel) sel.value = voiceId;
+    });
+    showToast('AI가 캐릭터에 맞는 목소리를 배정했습니다!', 'success');
+  } catch (e) {
+    showToast(`자동 배정 오류: ${e.message}`, 'error');
+  } finally {
+    btn.disabled = false;
+    txt.textContent = '🤖 AI 자동 배정';
   }
 }
 
@@ -855,6 +913,7 @@ async function startGeneration() {
         lines: parsedScript.lines,
         voice_assignments: voiceAssignments,
         user_character: userCharacter,
+        character_descriptions: parsedScript.character_descriptions || {},
       })
     });
 
@@ -911,6 +970,9 @@ function startRehearsal() {
 
   currentLineIndex = 0;
   updateDisplay();
+  if (autoAdvance) {
+    setTimeout(() => playCurrentLine(), 600);
+  }
 }
 
 function updateDisplay() {
@@ -984,6 +1046,77 @@ function updateDisplay() {
   document.getElementById('btn-next').disabled = currentLineIndex >= total - 1;
 }
 
+// ── 자동 진행 토글 ─────────────────────────────────────────
+function toggleAutoAdvance() {
+  autoAdvance = !autoAdvance;
+  const btn = document.getElementById('auto-advance-toggle');
+  if (autoAdvance) {
+    btn.textContent = '▶▶ 자동 진행 ON';
+    btn.style.borderColor = 'var(--accent)';
+    btn.style.color = 'var(--accent)';
+    showToast('자동 진행 모드 켜짐 — 대사가 자동으로 넘어갑니다.', 'success');
+    // 현재 라인이 방향 지문이나 내 대사면 자동 진행 시작
+    autoAdvanceCurrentIfNeeded();
+  } else {
+    btn.textContent = '⏸ 수동 진행';
+    btn.style.borderColor = 'var(--muted)';
+    btn.style.color = '';
+    clearCountdown();
+    showToast('수동 진행 모드로 전환되었습니다.', '');
+  }
+}
+
+function autoAdvanceCurrentIfNeeded() {
+  if (!autoAdvance) return;
+  const line = parsedScript.lines[currentLineIndex];
+  if (!line) return;
+  if (line.type === 'direction') {
+    scheduleAutoAdvance(600, '지문');
+  } else if (line.character === userCharacter) {
+    const readMs = getReadingTimeMs(line.text);
+    scheduleAutoAdvance(readMs, '내 대사 읽기');
+  }
+  // AI 대사는 playCurrentLine 에서 처리
+}
+
+// 텍스트 읽기 예상 시간 (ms) - 한국어 기준 약 3.5자/초 + 여유 시간
+function getReadingTimeMs(text) {
+  const ms = (text.length / 3.5) * 1000 + 1500;
+  return Math.max(2500, Math.min(ms, 10000));
+}
+
+// 카운트다운 바 표시 + 타이머
+function scheduleAutoAdvance(ms, label) {
+  clearCountdown();
+  const wrap = document.getElementById('countdown-bar-wrap');
+  const bar  = document.getElementById('countdown-bar');
+  const lbl  = document.getElementById('countdown-label');
+
+  wrap.classList.remove('hidden');
+  lbl.textContent = `${label} 후 자동 진행... (${(ms/1000).toFixed(1)}초)`;
+  bar.style.transition = 'none';
+  bar.style.width = '100%';
+
+  // 다음 프레임에서 transition 적용
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      bar.style.transition = `width ${ms}ms linear`;
+      bar.style.width = '0%';
+    });
+  });
+
+  countdownTimer = setTimeout(() => {
+    clearCountdown();
+    navigate(1);
+  }, ms);
+}
+
+function clearCountdown() {
+  if (countdownTimer) { clearTimeout(countdownTimer); countdownTimer = null; }
+  const wrap = document.getElementById('countdown-bar-wrap');
+  if (wrap) wrap.classList.add('hidden');
+}
+
 async function playCurrentLine() {
   const lines = parsedScript.lines;
   if (currentLineIndex >= lines.length) return;
@@ -991,26 +1124,30 @@ async function playCurrentLine() {
   const line = lines[currentLineIndex];
 
   if (line.type === 'direction') {
-    navigate(1);
+    if (autoAdvance) scheduleAutoAdvance(600, '지문');
+    else navigate(1);
     return;
   }
+
   if (line.character === userCharacter) {
-    navigate(1);
+    if (autoAdvance) {
+      const readMs = getReadingTimeMs(line.text);
+      scheduleAutoAdvance(readMs, '내 대사 읽기');
+    } else {
+      navigate(1);
+    }
     return;
   }
 
   // AI 대사 재생
   const audioUrl = audioMap[currentLineIndex];
   if (!audioUrl) {
-    // 음성 없으면 그냥 넘어감
-    navigate(1);
+    if (autoAdvance) scheduleAutoAdvance(500, '');
+    else navigate(1);
     return;
   }
 
-  if (currentAudio) {
-    currentAudio.pause();
-    currentAudio = null;
-  }
+  if (currentAudio) { currentAudio.pause(); currentAudio = null; }
 
   setAudioStatus(true, `${line.character} 재생 중...`);
   document.getElementById('btn-play').disabled = true;
@@ -1020,8 +1157,10 @@ async function playCurrentLine() {
     setAudioStatus(false, '');
     document.getElementById('btn-play').disabled = false;
     document.getElementById('btn-play').textContent = '▶ 다시 재생';
-    // 자동으로 다음으로
-    setTimeout(() => navigate(1), 600);
+    const pauseMs = line.pause_after ?? 800;
+    if (autoAdvance) {
+      scheduleAutoAdvance(pauseMs, '다음 대사까지');
+    }
   };
   currentAudio.onerror = () => {
     setAudioStatus(false, '');
@@ -1038,32 +1177,44 @@ async function playCurrentLine() {
 function setAudioStatus(active, text) {
   const wave = document.getElementById('audio-wave');
   const statusText = document.getElementById('audio-status-text');
-  if (active) {
-    wave.classList.remove('hidden');
-  } else {
-    wave.classList.add('hidden');
-  }
+  if (active) wave.classList.remove('hidden');
+  else wave.classList.add('hidden');
   statusText.textContent = text;
 }
 
 function navigate(dir) {
-  if (currentAudio) {
-    currentAudio.pause();
-    currentAudio = null;
-    setAudioStatus(false, '');
-  }
+  clearCountdown();
+  if (currentAudio) { currentAudio.pause(); currentAudio = null; setAudioStatus(false, ''); }
 
   const newIdx = currentLineIndex + dir;
   if (newIdx < 0 || newIdx > parsedScript.lines.length) return;
   currentLineIndex = newIdx;
   updateDisplay();
+
+  // 자동 진행 모드: 다음 라인 자동 처리
+  if (autoAdvance && newIdx < parsedScript.lines.length) {
+    const next = parsedScript.lines[newIdx];
+    if (next.type === 'direction') {
+      scheduleAutoAdvance(700, '지문');
+    } else if (next.character === userCharacter) {
+      const readMs = getReadingTimeMs(next.text);
+      scheduleAutoAdvance(readMs, '내 대사 읽기');
+    } else {
+      // AI 대사 — 잠깐 후 자동 재생
+      setTimeout(() => playCurrentLine(), 300);
+    }
+  }
 }
 
 function restartRehearsal() {
+  clearCountdown();
   if (currentAudio) { currentAudio.pause(); currentAudio = null; }
   currentLineIndex = 0;
   updateDisplay();
   showToast('처음부터 다시 시작합니다.', 'success');
+  if (autoAdvance) {
+    setTimeout(() => playCurrentLine(), 500);
+  }
 }
 
 // ── 뒤로 가기 ────────────────────────────────────────────
