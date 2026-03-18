@@ -892,6 +892,14 @@ function renderVoiceTable() {
           <button class="voice-preview-btn" onclick="confirmVoice('${char}')" style="color:var(--success);">✓ 확정</button>
           <button id="reassign-btn-${char.replace(/\s/g,'_')}" class="voice-preview-btn" onclick="reAssignVoice('${char}')">↻ 다시 추천</button>
         </div>
+        <input
+          id="pref-input-${char.replace(/\s/g,'_')}"
+          type="text"
+          placeholder="원하는 목소리 방향... (예: 더 차분하게, 젊은 느낌)"
+          style="margin-top:6px; width:100%; font-size:0.76rem; padding:4px 8px;
+                 border:1px solid var(--border); border-radius:6px; background:var(--bg);
+                 color:var(--text); box-sizing:border-box;"
+        />
       </td>
     `;
     tbody.appendChild(tr);
@@ -966,14 +974,20 @@ async function reAssignVoice(char) {
   const btn = document.getElementById(`reassign-btn-${char.replace(/\s/g,'_')}`);
   if (btn) { btn.disabled = true; btn.textContent = '...'; }
 
+  const prefInput = document.getElementById(`pref-input-${char.replace(/\s/g,'_')}`);
+  const preference = prefInput?.value?.trim() || '';
+
   try {
+    const body = {
+      characters: [char],
+      character_descriptions: parsedScript.character_descriptions || {},
+    };
+    if (preference) body.user_preferences = { [char]: preference };
+
     const res = await fetch('/api/auto-assign-voices', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        characters: [char],
-        character_descriptions: parsedScript.character_descriptions || {},
-      }),
+      body: JSON.stringify(body),
     });
     if (!res.ok) throw new Error('재배정 실패');
     const data = await res.json();
@@ -982,7 +996,6 @@ async function reAssignVoice(char) {
       voiceAssignments[char] = newVoiceId;
       const sel = document.getElementById(`voice-select-${char.replace(/\s/g,'_')}`);
       if (sel) sel.value = newVoiceId;
-      // 재배정 시 확정 상태 초기화
       const row = document.getElementById(`voice-row-${char.replace(/\s/g,'_')}`);
       if (row) row.classList.remove('voice-confirmed');
       showToast(`${char} 목소리 재배정 완료`, 'success');

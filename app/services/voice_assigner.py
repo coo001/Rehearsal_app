@@ -6,9 +6,14 @@ from app.core.config import client, TTS_VOICES, VALID_VOICE_IDS
 from app.prompts.templates import AUTO_ASSIGN_TEMPLATE
 
 
-def auto_assign_voices(characters: list, character_descriptions: dict) -> dict:
+def auto_assign_voices(
+    characters: list,
+    character_descriptions: dict,
+    user_preferences: dict | None = None,
+) -> dict:
     """캐릭터 목록을 받아 GPT-4o로 voice_id를 배정하고 결과를 반환.
 
+    user_preferences: {"캐릭터명": "더 차분하게"} — 있으면 프롬프트 최우선 섹션에 삽입.
     반환: {"assignments": {"캐릭터명": "voice_id"}, "reasons": {"캐릭터명": "이유"}}
     """
     voices_info = "\n".join(
@@ -20,6 +25,13 @@ def auto_assign_voices(characters: list, character_descriptions: dict) -> dict:
         for c in characters
     )
 
+    prefs = {k: v for k, v in (user_preferences or {}).items() if v and v.strip()}
+    if prefs:
+        pref_lines = "\n".join(f"- {c}: {p}" for c, p in prefs.items())
+        user_preferences_info = f"\n사용자 피드백 (최우선 반영):\n{pref_lines}\n"
+    else:
+        user_preferences_info = ""
+
     response = client.chat.completions.create(
         model="gpt-4o",
         messages=[
@@ -28,6 +40,7 @@ def auto_assign_voices(characters: list, character_descriptions: dict) -> dict:
                 "content": AUTO_ASSIGN_TEMPLATE.format(
                     voices_info=voices_info,
                     characters_info=characters_info,
+                    user_preferences_info=user_preferences_info,
                 ),
             },
             {"role": "user", "content": "각 캐릭터에 최적의 목소리를 배정해주세요."},

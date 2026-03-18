@@ -20,7 +20,7 @@ async def auto_assign_voices_endpoint(req: AutoAssignRequest):
     if not req.characters:
         return json_response({"assignments": {}})
     try:
-        result = auto_assign_voices(req.characters, req.character_descriptions)
+        result = auto_assign_voices(req.characters, req.character_descriptions, req.user_preferences)
         return json_response(result)
     except Exception as e:
         raise HTTPException(500, f"자동 배정 실패: {e}")

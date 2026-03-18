@@ -39,3 +39,4 @@ class SingleLineRequest(BaseModel):
 class AutoAssignRequest(BaseModel):
     characters: list                 # AI 음성이 필요한 캐릭터 목록
     character_descriptions: dict     # {"캐릭터명": "설명"}
+    user_preferences: Optional[dict] = None  # {"캐릭터명": "더 차분하게"} — 없으면 기본 배정
