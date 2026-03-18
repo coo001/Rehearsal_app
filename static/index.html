@@ -604,6 +604,12 @@ const SILENCE_DURATION = 1800;   // 발화 종료 후 침묵 대기 시간 (ms) 
 const MIN_SPEECH_MS    = 500;    // 최소 발화 지속 시간 (ms, 짧은 노이즈 무시)
 const MAX_LISTEN_MS    = 30000;  // 최대 대기 시간 (30초 후 자동 진행)
 
+// ── 오디오 재생 정규화 설정 ────────────────────────────────
+// voice별 기본 출력 레벨 차이(최대 ~10dB)를 보정해 캐릭터간 음량을 균일하게 맞춤
+const AUDIO_TARGET_PEAK = 0.85;  // 정규화 목표 peak (0.0–1.0)
+const AUDIO_MAX_GAIN    = 3.5;   // 최대 gain 배율 — 너무 조용한 파일 과증폭 방지
+let _playbackCtx = null;         // 재생 전용 AudioContext (마이크용 audioCtx와 분리)
+
 // ── 샘플 대본 ──────────────────────────────────────────────
 const SAMPLES = {
   korean: `[장소: 카페. 테이블에 앉은 지수와 민준]
@@ -863,7 +869,7 @@ async function previewVoice(char) {
   });
   if (res.ok) {
     const data = await res.json();
-    new Audio(data.audio_url).play();
+    playNormalizedAudio(data.audio_url);
   } else {
     showToast('미리듣기 생성 실패', 'error');
   }
@@ -1277,26 +1283,21 @@ async function playCurrentLine() {
   setAudioStatus(true, `${line.character} 재생 중...`);
   document.getElementById('btn-play').disabled = true;
 
-  currentAudio = new Audio(audioUrl);
-  currentAudio.onended = () => {
-    setAudioStatus(false, '');
-    document.getElementById('btn-play').disabled = false;
-    document.getElementById('btn-play').textContent = '▶ 다시 재생';
-    const pauseMs = line.pause_after ?? 800;
-    if (autoAdvance) {
-      scheduleAutoAdvance(pauseMs, '다음 대사까지');
-    }
-  };
-  currentAudio.onerror = () => {
-    setAudioStatus(false, '');
-    showToast('음성 재생 실패', 'error');
-    document.getElementById('btn-play').disabled = false;
-  };
-  currentAudio.play().catch(e => {
-    setAudioStatus(false, '');
-    showToast('재생 오류: ' + e.message, 'error');
-    document.getElementById('btn-play').disabled = false;
+  const ctrl = await playNormalizedAudio(audioUrl, {
+    onEnded: () => {
+      setAudioStatus(false, '');
+      document.getElementById('btn-play').disabled = false;
+      document.getElementById('btn-play').textContent = '▶ 다시 재생';
+      const pauseMs = line.pause_after ?? 800;
+      if (autoAdvance) scheduleAutoAdvance(pauseMs, '다음 대사까지');
+    },
+    onError: () => {
+      setAudioStatus(false, '');
+      showToast('음성 재생 실패', 'error');
+      document.getElementById('btn-play').disabled = false;
+    },
   });
+  if (ctrl) currentAudio = ctrl;
 }
 
 function setAudioStatus(active, text) {
@@ -1305,6 +1306,56 @@ function setAudioStatus(active, text) {
   if (active) wave.classList.remove('hidden');
   else wave.classList.add('hidden');
   statusText.textContent = text;
+}
+
+// ── 오디오 peak 정규화 재생 ────────────────────────────────
+// 파일을 fetch → Web Audio API로 decode → peak 측정 → gain 보정 후 재생.
+// voice별 기본 출력 레벨 차이를 보정해 모든 캐릭터 음량을 균일하게 맞춤.
+// 반환 객체의 .pause()는 기존 currentAudio.pause() 호출과 완전 호환.
+async function playNormalizedAudio(url, { onEnded, onError } = {}) {
+  // 재생 전용 AudioContext — 마이크용 audioCtx와 별도로 관리
+  if (!_playbackCtx || _playbackCtx.state === 'closed') {
+    _playbackCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (_playbackCtx.state === 'suspended') await _playbackCtx.resume();
+  const ctx = _playbackCtx;
+
+  let audioBuffer;
+  try {
+    const res = await fetch(url);
+    const raw = await res.arrayBuffer();
+    audioBuffer = await ctx.decodeAudioData(raw);
+  } catch (e) {
+    onError && onError(e);
+    return null;
+  }
+
+  // peak amplitude 측정 (전 채널)
+  let peak = 0;
+  for (let ch = 0; ch < audioBuffer.numberOfChannels; ch++) {
+    const data = audioBuffer.getChannelData(ch);
+    for (let i = 0; i < data.length; i++) {
+      const abs = Math.abs(data[i]);
+      if (abs > peak) peak = abs;
+    }
+  }
+
+  // gain 계산: TARGET_PEAK에 맞추되 MAX_GAIN 이상 boost하지 않음
+  const gain = peak > 0.01 ? Math.min(AUDIO_TARGET_PEAK / peak, AUDIO_MAX_GAIN) : 1.0;
+
+  const source   = ctx.createBufferSource();
+  source.buffer  = audioBuffer;
+  const gainNode = ctx.createGain();
+  gainNode.gain.value = gain;
+  source.connect(gainNode);
+  gainNode.connect(ctx.destination);
+  source.onended = onEnded || null;
+  source.start();
+
+  // currentAudio와 호환되는 컨트롤 객체 반환
+  return {
+    pause() { try { source.stop(); } catch (_) {} },
+  };
 }
 
 function navigate(dir) {

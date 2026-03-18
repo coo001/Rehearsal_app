@@ -42,6 +42,11 @@ def build_tts_instructions(
         else:
             parts.append(f"감정: {emotion_label}")
 
+    # 4-1. 저강도 음량 가드 — intensity 1-2에서 whisper로 빠지지 않도록
+    # 억눌린/가라앉은 감정은 유지하되, 음량 자체는 일반 대화 수준으로 고정
+    if intensity is not None and intensity <= 2:
+        parts.append("목소리가 상대방에게 닿도록. 속삭임 아님.")
+
     # 5. 속도 — "보통" 생략, 레이블 없이 값만
     if tempo and tempo != "보통":
         parts.append(tempo)

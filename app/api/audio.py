@@ -51,6 +51,9 @@ async def generate_rehearsal(req: GenerateRehearsalRequest):
                 tts_direction=line.get("tts_direction"),
                 emotion=line.get("emotion"),
             )
+            # 디버깅: 어떤 instruction이 어느 캐릭터/voice에 전달됐는지 확인
+            print(f"[TTS] idx={idx} char={char!r} voice={voice_id} intensity={line.get('intensity')}")
+            print(f"  >> {instructions!r}")
             tts_response = client.audio.speech.create(
                 model="gpt-4o-mini-tts",
                 voice=voice_id,
