@@ -4,29 +4,19 @@ import json
 
 from fastapi import APIRouter, HTTPException
 
-from app.core.config import client
-from app.prompts.templates import PARSE_SCRIPT_SYSTEM
 from app.schemas.requests import ParseScriptRequest
+from app.services.script_parser import parse_script
 from app.utils.response import json_response
 
 router = APIRouter()
 
 
 @router.post("/parse-script")
-async def parse_script(req: ParseScriptRequest):
+async def parse_script_endpoint(req: ParseScriptRequest):
     if not req.script.strip():
         raise HTTPException(400, "대본 내용을 입력해주세요.")
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": PARSE_SCRIPT_SYSTEM},
-                {"role": "user",   "content": f"다음 대본을 분석해주세요:\n\n{req.script}"},
-            ],
-            temperature=0.3,
-            response_format={"type": "json_object"},
-        )
-        data = json.loads(response.choices[0].message.content)
+        data = parse_script(req.script)
         return json_response(data)
     except json.JSONDecodeError as e:
         raise HTTPException(500, f"대본 파싱 실패 (JSON 오류): {e}")

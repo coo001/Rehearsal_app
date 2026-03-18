@@ -5,13 +5,12 @@ POST /api/generate-line       — 단일 줄 생성 (미리듣기 포함)
 DELETE /api/session/{id}      — 세션 파일 정리
 """
 
-import shutil
 import uuid
 
 from fastapi import APIRouter, HTTPException
 
-from app.core.config import client
 from app.schemas.requests import GenerateRehearsalRequest, SingleLineRequest
+from app.services.tts import delete_session_files, generate_tts_file
 from app.utils.audio_paths import audio_url, rehearsal_audio_path, single_line_audio_path
 from app.utils.instructions import build_tts_instructions
 from app.utils.response import json_response
@@ -51,17 +50,9 @@ async def generate_rehearsal(req: GenerateRehearsalRequest):
                 tts_direction=line.get("tts_direction"),
                 emotion=line.get("emotion"),
             )
-            # 디버깅: 어떤 instruction이 어느 캐릭터/voice에 전달됐는지 확인
             print(f"[TTS] idx={idx} char={char!r} voice={voice_id} intensity={line.get('intensity')}")
             print(f"  >> {instructions!r}")
-            tts_response = client.audio.speech.create(
-                model="gpt-4o-mini-tts",
-                voice=voice_id,
-                input=line["text"],
-                instructions=instructions,
-                response_format="mp3",
-            )
-            tts_response.stream_to_file(str(audio_path))
+            generate_tts_file(voice_id, line["text"], instructions, audio_path)
             audio_map[str(idx)] = audio_url(audio_path)
         except Exception as e:
             print(f"[경고] line {idx} 음성 생성 실패: {e}")
@@ -90,14 +81,7 @@ async def generate_single_line(req: SingleLineRequest):
                 tts_direction=req.tts_direction,
                 emotion=req.emotion,
             )
-            tts_response = client.audio.speech.create(
-                model="gpt-4o-mini-tts",
-                voice=req.voice_id,
-                input=req.text,
-                instructions=instructions,
-                response_format="mp3",
-            )
-            tts_response.stream_to_file(str(audio_path))
+            generate_tts_file(req.voice_id, req.text, instructions, audio_path)
         except Exception as e:
             raise HTTPException(500, f"음성 생성 실패: {e}")
 
@@ -106,8 +90,5 @@ async def generate_single_line(req: SingleLineRequest):
 
 @router.delete("/session/{session_id}")
 async def cleanup_session(session_id: str):
-    from app.core.config import AUDIO_DIR
-    session_dir = AUDIO_DIR / session_id
-    if session_dir.exists():
-        shutil.rmtree(session_dir)
+    delete_session_files(session_id)
     return json_response({"message": "세션 삭제 완료"})
