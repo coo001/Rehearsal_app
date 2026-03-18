@@ -28,6 +28,8 @@ class SingleLineRequest(BaseModel):
     emotion_label: Optional[str] = None
     intensity: Optional[int] = None
     tempo: Optional[str] = None
+    beat_goal: Optional[str] = None
+    tactics: Optional[str] = None
     subtext: Optional[str] = None
     tts_direction: Optional[str] = None
     # 하위 호환: 구형 단일 emotion 문자열

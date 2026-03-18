@@ -180,6 +180,8 @@
     font-size: 0.78rem;
     transition: all 0.2s;
   }
+  .voice-confirmed { background: rgba(74,222,128,0.07); border-left: 3px solid var(--success); }
+  .voice-action-cell { display: flex; gap: 6px; flex-wrap: wrap; }
   .voice-preview-btn:hover { color: var(--accent); border-color: var(--accent); }
 
   /* 진행 바 */
@@ -403,7 +405,7 @@
   <!-- ── 1단계: 대본 입력 ── -->
   <div id="phase-input">
     <div class="panel">
-      <div class="panel-title">📝 대본 붙여넣기</div>
+      <div class="panel-title">📝 대본 입력</div>
 
       <div class="sample-btn-row">
         <button class="btn btn-outline" onclick="loadSample('korean')">
@@ -412,6 +414,14 @@
         <button class="btn btn-outline" onclick="loadSample('english')">
           Sample Script (English)
         </button>
+        <button class="btn btn-outline" onclick="document.getElementById('pdf-file-input').click()">
+          📄 PDF 업로드
+        </button>
+        <input type="file" id="pdf-file-input" accept=".pdf" style="display:none"
+               onchange="handlePdfUpload(this)">
+        <span id="pdf-status" class="audio-status hidden">
+          <span class="spinner"></span> PDF 텍스트 추출 중...
+        </span>
       </div>
 
       <textarea id="script-input" placeholder="대본을 여기에 붙여넣으세요.
@@ -464,7 +474,7 @@
     <div class="panel">
       <div class="panel-title">🎙️ 캐릭터별 목소리 선택</div>
       <p style="font-size:0.88rem; color:var(--muted); margin-bottom:16px;">
-        각 캐릭터에 사용할 목소리를 선택하세요. AI가 캐릭터 특성에 맞춰 자동으로 배정할 수도 있습니다.
+        AI가 캐릭터 특성에 맞춰 자동으로 목소리를 배정합니다. 필요하면 직접 수정할 수 있습니다.
       </p>
       <div id="voices-loading" class="audio-status">
         <span class="spinner"></span> 목소리 목록 불러오는 중...
@@ -587,6 +597,7 @@ let sessionId = null;
 let audioMap = {};
 let currentLineIndex = 0;
 let currentAudio = null;
+let autoAdvanceTimer = null;  // goToVoices 자동 진행 타이머 (goBack 시 취소용)
 let autoAdvance = false;     // 자동 진행 여부
 let countdownTimer = null;   // 자동 진행 타이머
 
@@ -713,6 +724,34 @@ function showPhase(phase) {
 }
 
 // ── 1단계: 대본 파싱 ──────────────────────────────────────
+// ── PDF 업로드 → 텍스트 추출 ─────────────────────────────
+async function handlePdfUpload(input) {
+  const file = input.files[0];
+  if (!file) return;
+  input.value = '';  // 같은 파일 재선택 허용
+
+  const status = document.getElementById('pdf-status');
+  status.classList.remove('hidden');
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    const res = await fetch('/api/extract-pdf', { method: 'POST', body: formData });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || 'PDF 추출 실패');
+    }
+    const data = await res.json();
+    document.getElementById('script-input').value = data.text;
+    showToast(`PDF 추출 완료 (${data.total_pages}페이지, ${data.char_count.toLocaleString()}자). 대본을 확인하고 분석을 시작하세요.`, 'success');
+  } catch (e) {
+    showToast(`PDF 오류: ${e.message}`, 'error');
+  } finally {
+    status.classList.add('hidden');
+  }
+}
+
 async function parseScript() {
   const script = document.getElementById('script-input').value.trim();
   if (!script) { showToast('대본을 입력해주세요.', 'error'); return; }
@@ -784,6 +823,16 @@ async function goToVoices() {
   setStep(3);
   showPhase('voices');
   await loadVoices();
+
+  const otherChars = parsedScript.characters.filter(c => c !== userCharacter);
+  if (!otherChars.length) {
+    // 1인극 — AI 음성 없음, 바로 4단계
+    startGeneration();
+    return;
+  }
+
+  await autoAssignVoices();
+  // 배정 후 자동 진행 없음 — 사용자가 미리듣기/확인 후 직접 진행
 }
 
 async function loadVoices() {
@@ -832,13 +881,17 @@ function renderVoiceTable() {
       <td style="color:var(--muted); font-size:0.82rem;">AI 음성</td>
       <td>
         <select id="voice-select-${char.replace(/\s/g,'_')}"
-                onchange="voiceAssignments['${char}'] = this.value"
+                onchange="voiceAssignments['${char}'] = this.value; document.getElementById('voice-row-${char.replace(/\s/g,'_')}').classList.remove('voice-confirmed')"
                 style="max-width:260px;">
           ${selectOpts}
         </select>
       </td>
       <td>
-        <button class="voice-preview-btn" onclick="previewVoice('${char}')">▶ 미리듣기</button>
+        <div class="voice-action-cell">
+          <button id="preview-btn-${char.replace(/\s/g,'_')}" class="voice-preview-btn" onclick="previewVoice('${char}')">▶ 미리듣기</button>
+          <button class="voice-preview-btn" onclick="confirmVoice('${char}')" style="color:var(--success);">✓ 확정</button>
+          <button id="reassign-btn-${char.replace(/\s/g,'_')}" class="voice-preview-btn" onclick="reAssignVoice('${char}')">↻ 다시 추천</button>
+        </div>
       </td>
     `;
     tbody.appendChild(tr);
@@ -851,34 +904,101 @@ function renderVoiceTable() {
   }
 }
 
+function getFirstDialogueLine(char) {
+  return (parsedScript?.lines || []).find(
+    l => l.type === 'dialogue' && l.character === char
+  ) || null;
+}
+
 async function previewVoice(char) {
   const vid = voiceAssignments[char];
   if (!vid) return;
-  const previewText = `안녕하세요, 저는 ${char}입니다.`;
+
+  const btn = document.getElementById(`preview-btn-${char.replace(/\s/g,'_')}`);
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+
+  const firstLine = getFirstDialogueLine(char);
+  const previewText = firstLine?.text || `안녕하세요, 저는 ${char}입니다.`;
   const desc = parsedScript?.character_descriptions?.[char] || '';
   const tempSession = 'preview_' + Date.now();
-  const res = await fetch('/api/generate-line', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({
-      text: previewText, voice_id: vid,
-      session_id: tempSession, line_index: 0,
-      character_description: desc,
-      emotion: '밝고 자신감 있게 인사하듯',
-    })
-  });
-  if (res.ok) {
-    const data = await res.json();
-    playNormalizedAudio(data.audio_url);
+
+  const body = {
+    text: previewText, voice_id: vid,
+    session_id: tempSession, line_index: 0,
+    character: char, character_description: desc,
+  };
+  if (firstLine) {
+    // 첫 대사의 실제 감정/지시 필드를 그대로 사용
+    body.emotion_label  = firstLine.emotion_label  || null;
+    body.intensity      = firstLine.intensity      || null;
+    body.tempo          = firstLine.tempo          || null;
+    body.beat_goal      = firstLine.beat_goal      || null;
+    body.tactics        = firstLine.tactics        || null;
+    body.subtext        = firstLine.subtext        || null;
+    body.tts_direction  = firstLine.tts_direction  || null;
   } else {
-    showToast('미리듣기 생성 실패', 'error');
+    body.emotion = '차분하고 자연스럽게';
+  }
+
+  try {
+    const res = await fetch('/api/generate-line', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      playNormalizedAudio(data.audio_url);
+    } else {
+      showToast('미리듣기 생성 실패', 'error');
+    }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '▶ 미리듣기'; }
+  }
+}
+
+function confirmVoice(char) {
+  const row = document.getElementById(`voice-row-${char.replace(/\s/g,'_')}`);
+  if (row) row.classList.toggle('voice-confirmed');
+}
+
+async function reAssignVoice(char) {
+  const btn = document.getElementById(`reassign-btn-${char.replace(/\s/g,'_')}`);
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+
+  try {
+    const res = await fetch('/api/auto-assign-voices', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        characters: [char],
+        character_descriptions: parsedScript.character_descriptions || {},
+      }),
+    });
+    if (!res.ok) throw new Error('재배정 실패');
+    const data = await res.json();
+    const newVoiceId = data.assignments?.[char];
+    if (newVoiceId) {
+      voiceAssignments[char] = newVoiceId;
+      const sel = document.getElementById(`voice-select-${char.replace(/\s/g,'_')}`);
+      if (sel) sel.value = newVoiceId;
+      // 재배정 시 확정 상태 초기화
+      const row = document.getElementById(`voice-row-${char.replace(/\s/g,'_')}`);
+      if (row) row.classList.remove('voice-confirmed');
+      showToast(`${char} 목소리 재배정 완료`, 'success');
+    }
+  } catch (e) {
+    showToast(`재배정 실패: ${e.message}`, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '↻ 다시 추천'; }
   }
 }
 
 // ── AI 자동 목소리 배정 ───────────────────────────────────
+// 성공 시 true, 실패 시 false 반환 (goToVoices 자동 진행 판단용)
 async function autoAssignVoices() {
   const otherChars = parsedScript.characters.filter(c => c !== userCharacter);
-  if (!otherChars.length) return;
+  if (!otherChars.length) return true;
 
   const btn = document.getElementById('auto-assign-btn');
   const txt = document.getElementById('auto-assign-text');
@@ -897,15 +1017,16 @@ async function autoAssignVoices() {
     if (!res.ok) throw new Error('자동 배정 실패');
     const data = await res.json();
 
-    // 배정 결과 적용 및 드롭다운 업데이트
     Object.entries(data.assignments).forEach(([char, voiceId]) => {
       voiceAssignments[char] = voiceId;
       const sel = document.getElementById(`voice-select-${char.replace(/\s/g,'_')}`);
       if (sel) sel.value = voiceId;
     });
     showToast('AI가 캐릭터에 맞는 목소리를 배정했습니다!', 'success');
+    return true;
   } catch (e) {
     showToast(`자동 배정 오류: ${e.message}`, 'error');
+    return false;
   } finally {
     btn.disabled = false;
     txt.textContent = '🤖 AI 자동 배정';
@@ -1020,9 +1141,6 @@ function updateDisplay() {
     else el.classList.add('upcoming');
   });
 
-  // 현재 라인 스크롤
-  const currentEl = document.getElementById(`script-line-${currentLineIndex}`);
-  if (currentEl) currentEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
   // 현재 대사 박스 업데이트
   if (currentLineIndex >= total) {
@@ -1399,6 +1517,7 @@ function restartRehearsal() {
 function goBack(toStep) {
   stopListening();
   if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+  if (autoAdvanceTimer) { clearTimeout(autoAdvanceTimer); autoAdvanceTimer = null; }
   const phases = ['input', 'characters', 'voices', 'generating', 'rehearsal'];
   setStep(toStep);
   showPhase(phases[toStep - 1]);
