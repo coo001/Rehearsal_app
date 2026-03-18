@@ -361,6 +361,14 @@
 
   /* 샘플 버튼 */
   .sample-btn-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+
+  /* 마이크 listening wave (초록색) */
+  .audio-wave.listening .bar { background: var(--success); }
+  .current-line-box.listening-turn { border-color: var(--success); animation: mic-border-pulse 1.5s ease-in-out infinite; }
+  @keyframes mic-border-pulse {
+    0%, 100% { border-color: var(--success); box-shadow: 0 0 0 0 rgba(74,222,128,0); }
+    50% { border-color: #6effa0; box-shadow: 0 0 0 4px rgba(74,222,128,0.15); }
+  }
 </style>
 </head>
 <body>
@@ -581,6 +589,20 @@ let currentLineIndex = 0;
 let currentAudio = null;
 let autoAdvance = false;     // 자동 진행 여부
 let countdownTimer = null;   // 자동 진행 타이머
+
+// ── 마이크 음성 감지 상태 ──────────────────────────────────
+let micStream = null;
+let audioCtx = null;
+let analyserNode = null;
+let listeningActive = false;
+let speechDetected = false;
+let silenceTimer = null;
+let speechStartTime = 0;
+
+const SPEECH_THRESHOLD = 0.015;  // RMS 진폭 임계값 (0.0–1.0)
+const SILENCE_DURATION = 1800;   // 발화 종료 후 침묵 대기 시간 (ms) — 연기 특성상 여유 있게
+const MIN_SPEECH_MS    = 500;    // 최소 발화 지속 시간 (ms, 짧은 노이즈 무시)
+const MAX_LISTEN_MS    = 30000;  // 최대 대기 시간 (30초 후 자동 진행)
 
 // ── 샘플 대본 ──────────────────────────────────────────────
 const SAMPLES = {
@@ -1027,9 +1049,11 @@ function updateDisplay() {
     badge.className = 'turn-badge user';
     badge.textContent = `🎤 내 대사 (${userCharacter})`;
     textEl.textContent = line.text;
-    playBtn.textContent = '✓ 읽었어요 →';
+    playBtn.textContent = listeningActive ? '✋ 완료 (수동)' : '✓ 읽었어요 →';
     playBtn.disabled = false;
-    hintEl.textContent = '위 대사를 읽은 후 버튼을 누르세요.';
+    hintEl.textContent = autoAdvance
+      ? '대사를 말하세요. 잠시 멈추면 자동으로 넘어갑니다.'
+      : '위 대사를 읽은 후 버튼을 누르세요.';
   } else {
     box.className = 'current-line-box';
     badge.className = 'turn-badge ai';
@@ -1051,16 +1075,17 @@ function toggleAutoAdvance() {
   autoAdvance = !autoAdvance;
   const btn = document.getElementById('auto-advance-toggle');
   if (autoAdvance) {
-    btn.textContent = '▶▶ 자동 진행 ON';
-    btn.style.borderColor = 'var(--accent)';
-    btn.style.color = 'var(--accent)';
-    showToast('자동 진행 모드 켜짐 — 대사가 자동으로 넘어갑니다.', 'success');
-    // 현재 라인이 방향 지문이나 내 대사면 자동 진행 시작
+    btn.textContent = '🎤 음성 감지 ON';
+    btn.style.borderColor = 'var(--success)';
+    btn.style.color = 'var(--success)';
+    showToast('음성 감지 모드 켜짐 — 대사를 말하면 자동으로 넘어갑니다.', 'success');
+    // 현재 라인이 내 대사면 바로 듣기 시작, 나머지는 타이머/재생 처리
     autoAdvanceCurrentIfNeeded();
   } else {
     btn.textContent = '⏸ 수동 진행';
     btn.style.borderColor = 'var(--muted)';
     btn.style.color = '';
+    stopListening();
     clearCountdown();
     showToast('수동 진행 모드로 전환되었습니다.', '');
   }
@@ -1073,8 +1098,7 @@ function autoAdvanceCurrentIfNeeded() {
   if (line.type === 'direction') {
     scheduleAutoAdvance(600, '지문');
   } else if (line.character === userCharacter) {
-    const readMs = getReadingTimeMs(line.text);
-    scheduleAutoAdvance(readMs, '내 대사 읽기');
+    setTimeout(() => startListening(), 400);
   }
   // AI 대사는 playCurrentLine 에서 처리
 }
@@ -1117,6 +1141,101 @@ function clearCountdown() {
   if (wrap) wrap.classList.add('hidden');
 }
 
+// ── 마이크 음성 감지 ───────────────────────────────────────
+async function startListening() {
+  if (listeningActive) return;
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const source = audioCtx.createMediaStreamSource(micStream);
+    analyserNode = audioCtx.createAnalyser();
+    analyserNode.fftSize = 256;
+    source.connect(analyserNode);
+
+    listeningActive = true;
+    speechDetected = false;
+    silenceTimer = null;
+    speechStartTime = 0;
+
+    setListeningStatus(true);
+    analyzeMic();
+
+    // 안전망: MAX_LISTEN_MS 초과 시 자동 진행
+    setTimeout(() => {
+      if (listeningActive) { stopListening(); navigate(1); }
+    }, MAX_LISTEN_MS);
+
+  } catch (e) {
+    showToast('마이크 접근 실패. 타이머로 대체합니다.', 'error');
+    const line = parsedScript?.lines[currentLineIndex];
+    if (line && autoAdvance) scheduleAutoAdvance(getReadingTimeMs(line.text), '내 대사 읽기');
+  }
+}
+
+function stopListening() {
+  if (!listeningActive && !micStream) return; // 이미 정리됨
+  listeningActive = false;
+  if (silenceTimer) { clearTimeout(silenceTimer); silenceTimer = null; }
+  if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+  if (audioCtx) { audioCtx.close().catch(() => {}); audioCtx = null; }
+  analyserNode = null;
+  setListeningStatus(false);
+}
+
+function analyzeMic() {
+  if (!listeningActive || !analyserNode) return;
+  const buf = new Float32Array(analyserNode.fftSize);
+  analyserNode.getFloatTimeDomainData(buf);
+
+  // RMS 진폭 계산
+  let sum = 0;
+  for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+  const rms = Math.sqrt(sum / buf.length);
+  const isSpeaking = rms > SPEECH_THRESHOLD;
+
+  if (isSpeaking) {
+    if (!speechDetected) {
+      speechDetected = true;
+      speechStartTime = Date.now();
+    }
+    // 발화 중이면 침묵 타이머 리셋
+    if (silenceTimer) { clearTimeout(silenceTimer); silenceTimer = null; }
+  } else if (speechDetected && !silenceTimer) {
+    const spokenMs = Date.now() - speechStartTime;
+    if (spokenMs >= MIN_SPEECH_MS) {
+      // 충분히 말했고 지금 침묵 → SILENCE_DURATION 후 자동 진행
+      silenceTimer = setTimeout(() => {
+        stopListening();
+        navigate(1);
+      }, SILENCE_DURATION);
+    }
+  }
+
+  requestAnimationFrame(analyzeMic);
+}
+
+function setListeningStatus(active) {
+  const wave = document.getElementById('audio-wave');
+  const statusText = document.getElementById('audio-status-text');
+  const playBtn = document.getElementById('btn-play');
+  const box = document.getElementById('current-box');
+
+  if (active) {
+    wave.classList.remove('hidden');
+    wave.classList.add('listening');
+    box.classList.add('listening-turn');
+    statusText.textContent = '🎤 듣는 중... (대사를 말하고 잠시 멈추면 자동으로 넘어갑니다)';
+    const line = parsedScript?.lines[currentLineIndex];
+    if (line?.character === userCharacter) playBtn.textContent = '✋ 완료 (수동)';
+  } else {
+    wave.classList.remove('listening');
+    box.classList.remove('listening-turn');
+    if (!currentAudio) { wave.classList.add('hidden'); statusText.textContent = ''; }
+    const line = parsedScript?.lines[currentLineIndex];
+    if (line?.character === userCharacter) playBtn.textContent = '✓ 읽었어요 →';
+  }
+}
+
 async function playCurrentLine() {
   const lines = parsedScript.lines;
   if (currentLineIndex >= lines.length) return;
@@ -1131,8 +1250,14 @@ async function playCurrentLine() {
 
   if (line.character === userCharacter) {
     if (autoAdvance) {
-      const readMs = getReadingTimeMs(line.text);
-      scheduleAutoAdvance(readMs, '내 대사 읽기');
+      if (listeningActive) {
+        // 버튼 수동 누름 → 듣기 중단 후 즉시 진행
+        stopListening();
+        navigate(1);
+      } else {
+        // 아직 듣기 시작 전 → 마이크 시작
+        startListening();
+      }
     } else {
       navigate(1);
     }
@@ -1184,6 +1309,7 @@ function setAudioStatus(active, text) {
 
 function navigate(dir) {
   clearCountdown();
+  stopListening();
   if (currentAudio) { currentAudio.pause(); currentAudio = null; setAudioStatus(false, ''); }
 
   const newIdx = currentLineIndex + dir;
@@ -1197,8 +1323,8 @@ function navigate(dir) {
     if (next.type === 'direction') {
       scheduleAutoAdvance(700, '지문');
     } else if (next.character === userCharacter) {
-      const readMs = getReadingTimeMs(next.text);
-      scheduleAutoAdvance(readMs, '내 대사 읽기');
+      // 내 차례 → 마이크 시작
+      setTimeout(() => startListening(), 400);
     } else {
       // AI 대사 — 잠깐 후 자동 재생
       setTimeout(() => playCurrentLine(), 300);
@@ -1208,6 +1334,7 @@ function navigate(dir) {
 
 function restartRehearsal() {
   clearCountdown();
+  stopListening();
   if (currentAudio) { currentAudio.pause(); currentAudio = null; }
   currentLineIndex = 0;
   updateDisplay();
@@ -1219,6 +1346,7 @@ function restartRehearsal() {
 
 // ── 뒤로 가기 ────────────────────────────────────────────
 function goBack(toStep) {
+  stopListening();
   if (currentAudio) { currentAudio.pause(); currentAudio = null; }
   const phases = ['input', 'characters', 'voices', 'generating', 'rehearsal'];
   setStep(toStep);
