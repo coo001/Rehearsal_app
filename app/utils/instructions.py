@@ -64,3 +64,32 @@ def build_tts_instructions(
         parts.append(tts_direction)
 
     return "\n".join(parts)
+
+
+def build_elevenlabs_prompt(
+    emotion_label: str | None = None,
+    intensity: int | None = None,
+    tts_direction: str | None = None,
+    subtext: str | None = None,
+) -> str:
+    """ElevenLabs용 짧고 직접적인 연기 지시 문자열.
+
+    OpenAI instructions와 달리 ElevenLabs는 짧고 압축된 형태가 효과적이다.
+    핵심 요소만: emotion level + physical direction + subtext hint (선택).
+    """
+    parts = []
+
+    if emotion_label:
+        if intensity is not None:
+            level = ["억눌린", "가라앉은", "드러나는", "강한", "폭발적인"][max(0, min(4, intensity - 1))]
+            parts.append(f"{level} {emotion_label}.")
+        else:
+            parts.append(f"{emotion_label}.")
+
+    if tts_direction:
+        parts.append(tts_direction + ("." if not tts_direction.endswith(".") else ""))
+
+    if subtext:
+        parts.append(subtext + ("." if not subtext.endswith(".") else ""))
+
+    return " ".join(parts) if parts else "자연스럽게."

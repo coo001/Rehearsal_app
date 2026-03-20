@@ -12,7 +12,8 @@ from fastapi import APIRouter, HTTPException
 from app.schemas.requests import GenerateRehearsalRequest, SingleLineRequest
 from app.services.tts import delete_session_files, generate_tts_file
 from app.utils.audio_paths import audio_url, rehearsal_audio_path, single_line_audio_path
-from app.utils.instructions import build_tts_instructions
+from app.core.config import TTS_PROVIDER
+from app.utils.instructions import build_elevenlabs_prompt, build_tts_instructions
 from app.utils.response import json_response
 
 router = APIRouter()
@@ -41,20 +42,28 @@ async def generate_rehearsal(req: GenerateRehearsalRequest):
             continue
 
         try:
-            instructions = build_tts_instructions(
-                char_desc=req.character_descriptions.get(char),
-                emotion_label=line.get("emotion_label"),
-                intensity=line.get("intensity"),
-                tempo=line.get("tempo"),
-                beat_goal=line.get("beat_goal"),
-                tactics=line.get("tactics"),
-                subtext=line.get("subtext"),
-                tts_direction=line.get("tts_direction"),
-                emotion=line.get("emotion"),
-            )
-            print(f"[TTS] idx={idx} char={char!r} voice={voice_id} intensity={line.get('intensity')}")
+            if TTS_PROVIDER == "elevenlabs":
+                instructions = build_elevenlabs_prompt(
+                    emotion_label=line.get("emotion_label"),
+                    intensity=line.get("intensity"),
+                    tts_direction=line.get("tts_direction"),
+                    subtext=line.get("subtext"),
+                )
+            else:
+                instructions = build_tts_instructions(
+                    char_desc=req.character_descriptions.get(char),
+                    emotion_label=line.get("emotion_label"),
+                    intensity=line.get("intensity"),
+                    tempo=line.get("tempo"),
+                    beat_goal=line.get("beat_goal"),
+                    tactics=line.get("tactics"),
+                    subtext=line.get("subtext"),
+                    tts_direction=line.get("tts_direction"),
+                    emotion=line.get("emotion"),
+                )
+            print(f"[TTS] idx={idx} char={char!r} voice={voice_id} intensity={line.get('intensity')} provider={TTS_PROVIDER}")
             print(f"  >> {instructions!r}")
-            generate_tts_file(voice_id, line["text"], instructions, audio_path)
+            generate_tts_file(voice_id, line["text"], instructions, audio_path, intensity=line.get("intensity", 2))
             audio_map[str(idx)] = audio_url(audio_path)
         except Exception as e:
             print(f"[경고] line {idx} 음성 생성 실패: {e}")
@@ -74,18 +83,26 @@ async def generate_single_line(req: SingleLineRequest):
 
     if not audio_path.exists():
         try:
-            instructions = build_tts_instructions(
-                char_desc=req.character_description,
-                emotion_label=req.emotion_label,
-                intensity=req.intensity,
-                tempo=req.tempo,
-                beat_goal=req.beat_goal,
-                tactics=req.tactics,
-                subtext=req.subtext,
-                tts_direction=req.tts_direction,
-                emotion=req.emotion,
-            )
-            generate_tts_file(req.voice_id, req.text, instructions, audio_path)
+            if TTS_PROVIDER == "elevenlabs":
+                instructions = build_elevenlabs_prompt(
+                    emotion_label=req.emotion_label,
+                    intensity=req.intensity,
+                    tts_direction=req.tts_direction,
+                    subtext=req.subtext,
+                )
+            else:
+                instructions = build_tts_instructions(
+                    char_desc=req.character_description,
+                    emotion_label=req.emotion_label,
+                    intensity=req.intensity,
+                    tempo=req.tempo,
+                    beat_goal=req.beat_goal,
+                    tactics=req.tactics,
+                    subtext=req.subtext,
+                    tts_direction=req.tts_direction,
+                    emotion=req.emotion,
+                )
+            generate_tts_file(req.voice_id, req.text, instructions, audio_path, intensity=req.intensity or 2)
         except Exception as e:
             raise HTTPException(500, f"음성 생성 실패: {e}")
 

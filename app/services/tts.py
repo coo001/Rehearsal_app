@@ -3,11 +3,30 @@
 import shutil
 from pathlib import Path
 
-from app.core.config import client, AUDIO_DIR
+from app.core.config import (
+    AUDIO_DIR,
+    ELEVENLABS_API_KEY,
+    ELEVENLABS_MODEL_ID,
+    TTS_PROVIDER,
+    client,
+)
 
 
-def generate_tts_file(voice_id: str, text: str, instructions: str, audio_path: Path) -> None:
-    """OpenAI TTS 호출 후 audio_path에 mp3로 저장."""
+def generate_tts_file(
+    voice_id: str,
+    text: str,
+    instructions: str,
+    audio_path: Path,
+    intensity: int = 2,
+) -> None:
+    """TTS_PROVIDER에 따라 OpenAI 또는 ElevenLabs로 음성 생성 후 mp3 저장."""
+    if TTS_PROVIDER == "elevenlabs":
+        _generate_elevenlabs(voice_id, text, instructions, audio_path, intensity)
+    else:
+        _generate_openai(voice_id, text, instructions, audio_path)
+
+
+def _generate_openai(voice_id: str, text: str, instructions: str, audio_path: Path) -> None:
     tts_response = client.audio.speech.create(
         model="gpt-4o-mini-tts",
         voice=voice_id,
@@ -16,6 +35,50 @@ def generate_tts_file(voice_id: str, text: str, instructions: str, audio_path: P
         response_format="mp3",
     )
     tts_response.stream_to_file(str(audio_path))
+
+
+def _generate_elevenlabs(
+    voice_id: str,
+    text: str,
+    instructions: str,
+    audio_path: Path,
+    intensity: int,
+) -> None:
+    """ElevenLabs TTS 호출.
+
+    intensity(1~5)를 voice_settings로 변환:
+    - 1~2: stability 높음, style 낮음 (절제된 전달)
+    - 3:   balanced
+    - 4~5: stability 낮음, style 높음 (표현력 극대화)
+    """
+    if not ELEVENLABS_API_KEY:
+        raise RuntimeError("ELEVENLABS_API_KEY가 설정되지 않았습니다.")
+
+    from elevenlabs.client import ElevenLabs
+    from elevenlabs import VoiceSettings
+
+    # intensity -> voice_settings 매핑
+    if intensity <= 2:
+        stability, style = 0.65, 0.15
+    elif intensity == 3:
+        stability, style = 0.50, 0.35
+    else:
+        stability, style = 0.30, 0.60
+
+    el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
+    audio_iter = el_client.text_to_speech.convert(
+        voice_id=voice_id,
+        text=text,
+        model_id=ELEVENLABS_MODEL_ID,
+        output_format="mp3_44100_128",
+        voice_settings=VoiceSettings(
+            stability=stability,
+            similarity_boost=0.75,
+            style=style,
+            use_speaker_boost=True,
+        ),
+    )
+    audio_path.write_bytes(b"".join(audio_iter))
 
 
 def delete_session_files(session_id: str) -> None:
