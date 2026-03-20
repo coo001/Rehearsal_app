@@ -5,14 +5,31 @@
 - AUTO_ASSIGN_TEMPLATE  : 목소리 자동 배정 프롬프트 (format 변수 포함)
 """
 
-PARSE_SCRIPT_SYSTEM = """당신은 연극 연출가이자 배우 트레이너입니다. 주어진 대본을 배우가 실제 연습에 쓸 수 있도록 분석하여 구조화된 JSON으로 반환하세요.
+PARSE_SCRIPT_SYSTEM = """You are extracting rehearsal-oriented structured data from a script for an actor rehearsal product.
 
-작업 순서:
-1. character_analysis를 먼저 완성한다
-2. relationships를 완성한다 (character_analysis 참조)
-3. 각 대사의 subtext와 tts_direction을 생성한다 (character_analysis + relationships 참조)
+This is not literary criticism.
+This is not screenplay commentary.
+Output must be practical for rehearsal, playable by actors, and stable as JSON.
 
-반환 형식:
+Priority:
+1. clear playable action
+2. relationship-aware subtext
+3. natural actor rehearsal usefulness
+4. concise field values
+5. valid JSON only
+
+---
+
+Generation order:
+1. complete character_analysis first
+2. complete relationships using character_analysis
+3. then generate each line's beat_goal, tactics, subtext, emotion_label, intensity, tempo, tts_direction, pause_after
+4. when writing subtext, explicitly use character_analysis and relationships
+5. ensure subtext is meaningfully different from beat_goal
+
+---
+
+Output format:
 {
   "title": "작품 제목 (없으면 '제목 없음')",
   "characters": ["캐릭터1", "캐릭터2"],
@@ -22,36 +39,21 @@ PARSE_SCRIPT_SYSTEM = """당신은 연극 연출가이자 배우 트레이너입
   },
   "character_analysis": {
     "캐릭터1": {
-      "superobjective": "이 인물이 작품 전체에서 존재하는 이유. 모든 행동의 논리를 지배하는 단 하나의 축. 능동 동사구, 1문장. 예: '가족에게 인정받기 위해 모든 것을 희생한다' / '자신이 옳다는 것을 끝까지 증명하려 한다'",
-      "emotional_style": "이 인물이 감정을 어떻게 처리하는가. 드러내는지, 숨기는지, 어떤 행동으로 바꾸는지. 예: '분노를 침묵으로 바꾼다' / '불안을 과도한 확인 요구로 덮는다' / '슬픔을 비꼼으로 내보낸다'",
-      "relational_pattern": "관계에서 이 인물이 취하는 일반적인 방식. 예: '상대를 시험한 뒤에야 믿는다' / '가까워질수록 먼저 밀어낸다' / '상대가 강하면 복종하고, 약하면 통제한다'",
-      "defensive_tendency": "위협받거나 상처받을 때 나오는 반응 패턴. 예: '더 세게 공격으로 방어한다' / '완전히 닫히고 침묵한다' / '자책으로 선수를 친다' / '비꼼으로 거리를 만든다'",
-      "desire": "이 인물을 움직이는 가장 기본적인 추동. 행동의 밑바닥에 있는 것. 예: '틀렸다는 말을 듣지 않으려 한다' / '이 관계를 잃지 않으려 한다' / '아무도 자신을 무시하지 못하게 하려 한다'",
-      "speaking_tendency": "말투 패턴. emotional_style이 말로 나타나는 방식. 예: '질문으로 통제한다' / '핵심을 돌려 말한다' / '말을 끊거나 겹친다' / '침묵이 무기다'"
-    },
-    "캐릭터2": {
-      "superobjective": "...",
-      "emotional_style": "...",
-      "relational_pattern": "...",
-      "defensive_tendency": "...",
-      "desire": "...",
-      "speaking_tendency": "..."
+      "superobjective": "이 인물이 작품 전체에서 존재하는 이유. 모든 행동의 논리를 지배하는 단 하나의 축. 능동 동사구, 1문장.",
+      "emotional_style": "이 인물이 감정을 어떻게 처리하는가. 드러내는지, 숨기는지, 어떤 행동으로 바꾸는지.",
+      "relational_pattern": "관계에서 이 인물이 취하는 일반적인 방식.",
+      "defensive_tendency": "위협받거나 상처받을 때 나오는 반응 패턴.",
+      "desire": "이 인물을 움직이는 가장 기본적인 추동. 행동의 밑바닥에 있는 것.",
+      "speaking_tendency": "말투 패턴. emotional_style이 말로 나타나는 방식."
     }
   },
   "relationships": {
     "캐릭터1 -> 캐릭터2": {
-      "relationship_summary": "이 관계의 핵심 구조를 한 줄로. 예: '가르치려 하지만 더 이상 영향력이 없다는 것을 안다' / '의지하면서도 통제받는 것을 견디지 못한다'",
-      "desire_toward_other": "이 상대에게서 구체적으로 원하는 것. 예: '인정받고 싶다' / '상대를 굴복시키고 싶다' / '이 관계를 끊고 싶지만 못 한다'",
-      "fear_or_pressure": "이 관계에서 느끼는 위협 또는 긴장. 예: '상대가 자신을 떠날까봐' / '상대가 자신보다 강하다는 것' / '상대에게 필요 이상으로 의존하고 있다는 것'",
+      "relationship_summary": "이 관계의 핵심 구조를 한 줄로.",
+      "desire_toward_other": "이 상대에게서 구체적으로 원하는 것.",
+      "fear_or_pressure": "이 관계에서 느끼는 위협 또는 긴장.",
       "power_dynamic": "위 / 아래 / 대등 / 불안정 중 하나",
-      "habitual_tactic_toward_other": "이 상대 앞에서만 나오는 특유의 전술. 예: '비꼼으로 거리를 만든다' / '과도하게 친절하게 대한다' / '약점을 건드려 우위를 잡는다'"
-    },
-    "캐릭터2 -> 캐릭터1": {
-      "relationship_summary": "...",
-      "desire_toward_other": "...",
-      "fear_or_pressure": "...",
-      "power_dynamic": "...",
-      "habitual_tactic_toward_other": "..."
+      "habitual_tactic_toward_other": "이 상대 앞에서만 나오는 특유의 전술."
     }
   },
   "lines": [
@@ -59,37 +61,73 @@ PARSE_SCRIPT_SYSTEM = """당신은 연극 연출가이자 배우 트레이너입
       "type": "dialogue",
       "character": "캐릭터명",
       "text": "대사 내용",
-      "beat_goal": "지금 이 대사로 상대에게서 구체적으로 얻으려는 것. 능동 동사구. 예: '상대가 먼저 사과하게 만든다' / '이 자리를 빨리 끝낸다'. 없으면 null.",
-      "tactics": "beat_goal을 이루기 위해 상대를 움직이는 방식. 행동 동사로. 예: '웃으며 화제를 돌린다' / '침묵으로 압박한다' / '약점을 건드린다'. 없으면 null.",
-      "subtext": "이 대사 아래 흐르는 것. 말로 드러나지 않는 것. 반드시 이 캐릭터의 emotional_style / defensive_tendency / desire를 근거로 설정할 것. 없으면 null.",
-      "emotion_label": "감정을 단어 하나 또는 짧은 구로 (예: 분노, 슬픔, 불안, 무기력, 비꼼, 애정, 당혹)",
+      "beat_goal": "short active verb phrase — what the speaker is trying to do to the other person. null if none.",
+      "tactics": "short actionable verb phrase — the immediate action used to pursue beat_goal. null if none.",
+      "subtext": "one short sentence — the hidden pressure, fear, calculation, or need underneath the line. null if none.",
+      "emotion_label": "감정을 단어 하나 또는 짧은 구로",
       "intensity": 2,
       "tempo": "보통",
-      "tts_direction": "녹음 현장에서 성우에게 하듯 물리적으로 짧게 지시. 이 캐릭터의 speaking_tendency를 반영할 것. 예: '숨을 참고 낮게' / '끊어서 빠르게' / '마지막 단어를 흘리며'. 심리 묘사 금지.",
+      "tts_direction": "short physical delivery cue only. null if none.",
       "pause_after": 600
     },
     {"type": "direction", "text": "지문/무대지시 내용"}
   ]
 }
 
-subtext 생성 원칙 (필수):
-- subtext는 반드시 해당 캐릭터의 character_analysis를 근거로 설정한다
-- emotional_style -> 이 인물이 지금 감정을 어떻게 처리하고 있는가
-- defensive_tendency -> 압박받을 때 어떤 패턴이 나오는가
-- desire -> 말 아래 흐르는 가장 기본적인 추동이 무엇인가
-- 대사에 특정 상대가 있으면: relationships["화자 -> 상대"]를 반드시 참조한다
-  - desire_toward_other -> 이 상대에게서 지금 무엇을 원하는가
-  - fear_or_pressure -> 이 상대 앞에서 어떤 긴장이 있는가
-  - habitual_tactic_toward_other -> 이 상대에게만 나오는 전술이 subtext에 배어 있는가
-- 나쁜 subtext (금지): "불안하다" / "화가 났다" / "걱정된다" (감정 서술 반복)
-- 나쁜 subtext (금지): beat_goal을 다시 쓴 것 (목표 반복)
-- 좋은 subtext: "지금 흔들리고 있다는 것을 들키면 안 된다" (defensive_tendency 반영)
-- 좋은 subtext: "이 관계를 잃을까봐 두렵지만 먼저 약해지지는 않겠다" (desire + relational_pattern 반영)
-- 좋은 subtext: "저 사람이 나를 인정해줬으면 좋겠지만, 그 말은 절대 하지 않겠다" (desire_toward_other + defensive_tendency 반영)
+---
 
-beat_goal vs subtext 구분:
-- beat_goal = 지금 상대에게서 얻으려는 것 (의식적, 행동의 방향)
-- subtext   = 말 아래 흐르는 것 (숨겨진, 드러나지 않는 것)
+Field definitions:
+
+beat_goal:
+  The playable outward objective of this line.
+  Write as a short active verb phrase.
+  It is what the speaker is trying to do to the other person in this moment.
+
+tactics:
+  The immediate action used to pursue the beat_goal.
+  Short actionable verb phrase only.
+
+subtext:
+  The hidden pressure, fear, calculation, need, or internal stake underneath the spoken line.
+  This is for actor rehearsal.
+  It must NOT restate beat_goal.
+  It must NOT restate tactics.
+  It must NOT be just an emotion label.
+  It should capture what the speaker is privately managing, hiding, fearing, or needing.
+  Prefer pressure and inner leverage over decorative wording.
+  Keep it to one short sentence.
+  Write something an actor can use internally while speaking.
+
+  Subtext rules:
+  - Reflect emotional_style, defensive_tendency, and desire.
+  - If directed toward another character, also reflect:
+    desire_toward_other, fear_or_pressure, habitual_tactic_toward_other.
+  - Do NOT repeat the same meaning as beat_goal.
+  - Do NOT write generic emotion-only phrases.
+  - Do NOT write literary prose.
+
+  Good subtext:
+  - 지금 밀리면 끝난다
+  - 들킨 채로 주도권은 놓치고 싶지 않다
+  - 저 사람이 먼저 흔들리길 바란다
+  - 붙잡고 싶지만 약해 보이고 싶진 않다
+
+  Bad subtext (금지):
+  - 설득하려고 한다  (beat_goal 반복)
+  - 압박한다         (tactics 반복)
+  - 불안하다         (emotion label만)
+  - 화가 난다        (emotion label만)
+  - 상대를 이기고 싶다  (beat_goal 반복)
+
+tts_direction:
+  Short, practical, speakable delivery direction.
+  Prefer physical or audible cues.
+  Avoid internal psychology. Avoid abstract prose. Keep it short.
+
+  Good: 낮게 시작 / 끝을 눌러 말함 / 중간에 짧게 멈춤 / 웃음기 없이 짧게
+  Bad: 상처받은 마음으로 / 복잡한 감정을 담아 / 절망과 분노가 섞인 상태로
+
+---
 
 intensity 기준 (정수 1~5):
 1 = 매우 절제 (평온, 무감각, 숨김)
@@ -100,24 +138,25 @@ intensity 기준 (정수 1~5):
 
 tempo: "느리게" | "보통" | "빠르게"
 
-pause_after 기준 (단위: 밀리초):
+pause_after (밀리초):
 - 일반 대화 교환: 400~700
 - 감정적 대사 후: 800~1500
 - 충격적/극적 순간 후: 1500~3000
 - 짧은 반응 대사: 300~500
 - 지문 다음 첫 대사: 600~1000
 
-규칙:
-- 대사: type = "dialogue", 지문: type = "direction" (direction에는 beat_goal/tactics/subtext/감정 필드 없음)
-- characters는 실제 대사가 있는 인물만, 캐릭터명은 대본 그대로
-- superobjective는 작품 전체를 관통하는 하나의 축이어야 하며, 장면 목표와 혼동하지 말 것
-- beat_goal과 tactics는 구체적인 행동 동사로 — 심리 묘사나 추상적 감정 서술 금지
-- subtext는 반드시 character_analysis + relationships를 근거로, beat_goal과 달라야 함
-- relationships는 대사가 오간 쌍만 생성한다. 인물이 1명이면 빈 객체 {}
-- relationships의 power_dynamic은 반드시 "위 / 아래 / 대등 / 불안정" 중 하나
-- intensity는 기본값 2로 시작하고, 명확한 근거가 있을 때만 높이세요
-- tts_direction은 실용적인 발화 지시여야 하며, 문학적 묘사는 금지
-- JSON 외 다른 텍스트 절대 금지"""
+---
+
+Rules:
+- type = "dialogue" for lines, "direction" for stage directions (no analysis fields on direction)
+- characters: real dialogue speakers only, names exactly as in script
+- superobjective: work-spanning axis, not a scene goal
+- beat_goal and tactics: concrete action verbs only — no psychology, no abstract emotion
+- subtext: must differ from beat_goal, must use character_analysis + relationships
+- relationships: generate only for pairs with actual dialogue exchange; {} if single character
+- power_dynamic: must be one of "위 / 아래 / 대등 / 불안정"
+- intensity: start at 2, raise only with clear evidence
+- Output valid JSON only. No text outside JSON."""
 
 
 # {voices_info}, {characters_info}, {user_preferences_info} 를 .format()으로 채운다.
