@@ -40,18 +40,29 @@ OPENAI_TTS_VOICES = [
 
 # ─── ElevenLabs TTS 목소리 목록 ────────────────────────────────
 ELEVENLABS_TTS_VOICES = [
+    # 이 계정(free tier)에서 실제 접근 가능한 premade voices만 포함
     # 각 description: 성별 | 연령대 | 발화 질감 | 리허설 적합 캐릭터 유형
-    {"voice_id": "JBFqnCBsd6RMkjVDRZzb", "name": "George",  "gender": "남성", "description": "남성, 중년, 낮고 절제된 대화형, 권위 있거나 침착한 캐릭터에 적합"},
-    {"voice_id": "nPczCjzI2devNBz1zQrb", "name": "Brian",   "gender": "남성", "description": "남성, 젊은 중년, 차분하고 자연스러운 대화형, 평범하고 현실적인 캐릭터에 적합"},
-    {"voice_id": "cgSgspJ2msm6clMCkdW9", "name": "Jessica", "gender": "여성", "description": "여성, 젊은 성인, 따뜻하고 자연스러운 대화형, 친근하거나 감정이 풍부한 캐릭터에 적합"},
-    {"voice_id": "EXAVITQu4vr4xnSDxMaL", "name": "Bella",   "gender": "여성", "description": "여성, 젊은 성인, 부드럽고 감성적, 내향적이거나 조용한 캐릭터에 적합"},
-    {"voice_id": "pNInz6obpgDQGcFmaJgB", "name": "Adam",    "gender": "남성", "description": "남성, 중년 이상, 깊고 무게감 있음, 성숙하거나 권위적인 캐릭터에 적합"},
-    {"voice_id": "yoZ06aMxZJJ28mfd3POQ", "name": "Sam",     "gender": "중성", "description": "중성, 젊은 성인, 명확하고 안정적인 전달, 중립적이거나 직업적인 캐릭터에 적합"},
-    {"voice_id": "21m00Tcm4TlvDq8ikWAM", "name": "Rachel",  "gender": "여성", "description": "여성, 성인, 차분하고 지적, 냉정하거나 절제된 캐릭터에 적합"},
-    {"voice_id": "MF3mGyEYCl7XYWbV9V6O", "name": "Elli",    "gender": "여성", "description": "여성, 10대~20대 초반, 밝고 에너지 넘침, 젊고 감정이 직접적인 캐릭터에 적합"},
-    {"voice_id": "TxGEqnHWrfWFTfGW9XjX", "name": "Josh",    "gender": "남성", "description": "남성, 20대, 젊고 다이나믹, 충동적이거나 열정적인 캐릭터에 적합"},
-    {"voice_id": "VR6AewLTigWG4xSOukaG", "name": "Arnold",  "gender": "남성", "description": "남성, 중년 이상, 강하고 단호함, 지배적이거나 갈등을 주도하는 캐릭터에 적합"},
-    {"voice_id": "AZnzlk1XvdvUeBnXmlld", "name": "Domi",    "gender": "여성", "description": "여성, 성인, 강하고 직접적, 자기주장이 강하거나 공격적인 캐릭터에 적합"},
+    {"voice_id": "JBFqnCBsd6RMkjVDRZzb", "name": "George",  "gender": "남성", "description": "남성, 중년, 따뜻하고 안정적인 스토리텔러형, 권위 있거나 침착한 캐릭터에 적합"},
+    {"voice_id": "nPczCjzI2devNBz1zQrb", "name": "Brian",   "gender": "남성", "description": "남성, 중년, 깊고 안정적인 울림, 믿음직하고 무게감 있는 캐릭터에 적합"},
+    {"voice_id": "pNInz6obpgDQGcFmaJgB", "name": "Adam",    "gender": "남성", "description": "남성, 중년 이상, 지배적이고 단호함, 강압적이거나 권위적인 캐릭터에 적합"},
+    {"voice_id": "IKne3meq5aSn9XLyUdCD", "name": "Charlie", "gender": "남성", "description": "남성, 젊은 성인, 깊고 자신감 있으며 에너지 넘침, 적극적이고 열정적인 캐릭터에 적합"},
+    {"voice_id": "TX3LPaxmHKxFdv7VOQHJ", "name": "Liam",    "gender": "남성", "description": "남성, 20대, 사교적이고 에너지 넘침, 충동적이거나 친근한 캐릭터에 적합"},
+    {"voice_id": "CwhRBWXzGAHq8TQ4Fs17", "name": "Roger",   "gender": "남성", "description": "남성, 중년, 여유롭고 캐주얼, 느긋하거나 관찰자적인 캐릭터에 적합"},
+    {"voice_id": "onwK4e9ZLuTAKqWW03F9", "name": "Daniel",  "gender": "남성", "description": "남성, 중년, 안정적이고 명확한 전달, 중립적이거나 직업적인 캐릭터에 적합"},
+    {"voice_id": "iP95p4xoKVk53GoZ742B", "name": "Chris",   "gender": "남성", "description": "남성, 성인, 매력적이고 현실적, 공감 능력 있는 평범한 캐릭터에 적합"},
+    {"voice_id": "pqHfZKP75CvOlQylNhV4", "name": "Bill",    "gender": "남성", "description": "남성, 중년 이상, 지혜롭고 균형 잡힌 성숙함, 인생 경험이 있는 연장자 캐릭터에 적합"},
+    {"voice_id": "cgSgspJ2msm6clMCkdW9", "name": "Jessica", "gender": "여성", "description": "여성, 젊은 성인, 발랄하고 따뜻함, 친근하거나 감정이 직접적인 캐릭터에 적합"},
+    {"voice_id": "EXAVITQu4vr4xnSDxMaL", "name": "Sarah",   "gender": "여성", "description": "여성, 성인, 성숙하고 자신감 있으며 안정적, 주도적이거나 절제된 캐릭터에 적합"},
+    {"voice_id": "Xb7hH8MSUJpSbSDYk0k2", "name": "Alice",   "gender": "여성", "description": "여성, 성인, 명확하고 지적이며 설득력 있음, 냉정하거나 분석적인 캐릭터에 적합"},
+    {"voice_id": "XrExE9yKIg1WjnnlVkGX", "name": "Matilda", "gender": "여성", "description": "여성, 성인, 전문적이고 지식 있음, 신뢰감 있거나 권위적인 여성 캐릭터에 적합"},
+    {"voice_id": "FGY2WhTYpPnrIDTdsKH5", "name": "Laura",   "gender": "여성", "description": "여성, 젊은 성인, 열정적이고 독특한 개성, 에너지 넘치거나 개성 강한 캐릭터에 적합"},
+    {"voice_id": "pFZP5JQG7iQjIQuC4Bku", "name": "Lily",    "gender": "여성", "description": "여성, 성인, 부드럽고 연기적인 표현력, 감성적이거나 내면이 복잡한 캐릭터에 적합"},
+    {"voice_id": "SAz9YHcvj6GT2YYXdXww", "name": "River",   "gender": "중성", "description": "중성, 성인, 편안하고 중립적이며 정보 전달에 최적, 관찰자나 해설자 역할에 적합"},
+    {"voice_id": "hpp4J3VqNfWAUOO0d1Us", "name": "Bella",   "gender": "여성", "description": "여성, 성인, 전문적이고 밝으며 따뜻함, 사교적이거나 진취적인 캐릭터에 적합"},
+    {"voice_id": "bIHbv24MWmeRgasZH58o", "name": "Will",    "gender": "남성", "description": "남성, 젊은 성인, 여유롭고 낙관적, 유연하거나 긍정적인 캐릭터에 적합"},
+    {"voice_id": "cjVigY5qzO86Huf0OWal", "name": "Eric",    "gender": "남성", "description": "남성, 성인, 부드럽고 신뢰감 있음, 조용하거나 내향적인 캐릭터에 적합"},
+    {"voice_id": "N2lVS1w4EtoT3dr4eOWO", "name": "Callum",  "gender": "남성", "description": "남성, 젊은 성인, 허스키하고 반항적, 불안정하거나 트릭스터 캐릭터에 적합"},
+    {"voice_id": "SOYHLrjzK2X1ezoPC6cr", "name": "Harry",   "gender": "남성", "description": "남성, 젊은 성인, 강렬하고 전투적, 격렬하거나 대립적인 캐릭터에 적합"},
 ]
 
 # ─── provider에 따른 활성 voice 목록 ───────────────────────────
