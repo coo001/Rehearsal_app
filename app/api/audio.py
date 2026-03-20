@@ -44,10 +44,11 @@ async def generate_rehearsal(req: GenerateRehearsalRequest):
         try:
             if TTS_PROVIDER == "elevenlabs":
                 instructions = build_elevenlabs_prompt(
+                    beat_goal=line.get("beat_goal"),
+                    subtext=line.get("subtext"),
+                    tts_direction=line.get("tts_direction"),
                     emotion_label=line.get("emotion_label"),
                     intensity=line.get("intensity"),
-                    tts_direction=line.get("tts_direction"),
-                    subtext=line.get("subtext"),
                 )
             else:
                 instructions = build_tts_instructions(
@@ -85,10 +86,11 @@ async def generate_single_line(req: SingleLineRequest):
         try:
             if TTS_PROVIDER == "elevenlabs":
                 instructions = build_elevenlabs_prompt(
+                    beat_goal=req.beat_goal,
+                    subtext=req.subtext,
+                    tts_direction=req.tts_direction,
                     emotion_label=req.emotion_label,
                     intensity=req.intensity,
-                    tts_direction=req.tts_direction,
-                    subtext=req.subtext,
                 )
             else:
                 instructions = build_tts_instructions(
