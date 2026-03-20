@@ -10,7 +10,7 @@ import uuid
 from fastapi import APIRouter, HTTPException
 
 from app.schemas.requests import GenerateRehearsalRequest, SingleLineRequest
-from app.services.tts import delete_session_files, generate_tts_file
+from app.services.tts import check_elevenlabs_auth, delete_session_files, generate_tts_file
 from app.utils.audio_paths import audio_url, rehearsal_audio_path, single_line_audio_path
 from app.core.config import TTS_PROVIDER
 from app.utils.instructions import build_elevenlabs_prompt, build_tts_instructions
@@ -107,6 +107,13 @@ async def generate_single_line(req: SingleLineRequest):
             raise HTTPException(500, f"음성 생성 실패: {e}")
 
     return {"audio_url": audio_url(audio_path)}
+
+
+@router.get("/check-elevenlabs")
+async def check_elevenlabs():
+    """ElevenLabs API key 설정 및 인증 상태 확인 (개발용)."""
+    result = check_elevenlabs_auth()
+    return json_response({"provider": "elevenlabs", **result})
 
 
 @router.delete("/session/{session_id}")

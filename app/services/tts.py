@@ -86,3 +86,40 @@ def delete_session_files(session_id: str) -> None:
     session_dir = AUDIO_DIR / session_id
     if session_dir.exists():
         shutil.rmtree(session_dir)
+
+
+def check_elevenlabs_auth() -> dict:
+    """ElevenLabs API key 설정 여부와 인증 성공 여부를 반환.
+
+    실제 키 값은 절대 노출하지 않는다.
+    반환: {"configured": bool, "auth_ok": bool, "detail": str}
+    """
+    if not ELEVENLABS_API_KEY:
+        return {
+            "configured": False,
+            "auth_ok": False,
+            "detail": "ELEVENLABS_API_KEY is missing.",
+        }
+
+    try:
+        from elevenlabs.client import ElevenLabs
+        el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
+        el_client.user.get()
+        return {
+            "configured": True,
+            "auth_ok": True,
+            "detail": "ElevenLabs API authentication succeeded.",
+        }
+    except Exception as e:
+        msg = str(e).lower()
+        if "401" in msg or "403" in msg or "unauthorized" in msg or "forbidden" in msg:
+            detail = "Authentication failed with ElevenLabs API."
+        elif "connection" in msg or "timeout" in msg or "network" in msg:
+            detail = "Connection error reaching ElevenLabs API."
+        else:
+            detail = f"ElevenLabs API check failed: {type(e).__name__}"
+        return {
+            "configured": True,
+            "auth_ok": False,
+            "detail": detail,
+        }
