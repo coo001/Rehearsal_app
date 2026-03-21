@@ -253,6 +253,19 @@
   .script-line.current .line-text {
     font-size: 1.1rem;
   }
+  .line-text.masked { color: var(--muted); letter-spacing: 0.1em; }
+
+  .visibility-mode-bar {
+    display: flex; gap: 6px; align-items: center;
+    margin-bottom: 10px; flex-wrap: wrap;
+  }
+  .visibility-mode-bar span { font-size: 0.78rem; color: var(--muted); margin-right: 2px; }
+  .mode-btn {
+    font-size: 0.78rem; padding: 4px 10px; border-radius: 6px;
+    border: 1px solid var(--border); background: transparent;
+    color: var(--text); cursor: pointer; transition: all 0.15s;
+  }
+  .mode-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
   /* 컨트롤 패널 */
   .control-panel {
@@ -577,7 +590,13 @@
 
     <!-- 전체 대본 스크롤 뷰 -->
     <div class="panel">
-      <div class="panel-title" style="margin-bottom:12px; font-size:0.9rem; color:var(--muted);">전체 대본</div>
+      <div class="panel-title" style="margin-bottom:8px; font-size:0.9rem; color:var(--muted);">전체 대본</div>
+      <div class="visibility-mode-bar">
+        <span>대본 보기:</span>
+        <button class="mode-btn active" id="mode-btn-show_all" onclick="setVisibilityMode('show_all')">전체 보기</button>
+        <button class="mode-btn" id="mode-btn-hide_my_lines" onclick="setVisibilityMode('hide_my_lines')">내 대사 가리기</button>
+        <button class="mode-btn" id="mode-btn-hide_all_lines" onclick="setVisibilityMode('hide_all_lines')">모두 가리기</button>
+      </div>
       <div class="script-viewer" id="script-viewer"></div>
     </div>
   </div>
@@ -600,6 +619,25 @@ let currentAudio = null;
 let autoAdvanceTimer = null;  // goToVoices 자동 진행 타이머 (goBack 시 취소용)
 let autoAdvance = false;     // 자동 진행 여부
 let countdownTimer = null;   // 자동 진행 타이머
+let scriptVisibilityMode = 'show_all'; // 'show_all' | 'hide_my_lines' | 'hide_all_lines'
+
+function shouldMaskLine(line, mode, userChar) {
+  if (line.type === 'direction') return false;
+  if (mode === 'hide_all_lines') return true;
+  if (mode === 'hide_my_lines') return userChar && line.character === userChar;
+  return false;
+}
+
+function setVisibilityMode(mode) {
+  scriptVisibilityMode = mode;
+  document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
+  const btn = document.getElementById('mode-btn-' + mode);
+  if (btn) btn.classList.add('active');
+  const saved = currentLineIndex;
+  buildScriptViewer();
+  currentLineIndex = saved;
+  updateDisplay();
+}
 
 // ── 마이크 음성 감지 상태 ──────────────────────────────────
 let micStream = null;
@@ -1119,12 +1157,13 @@ function startRehearsal() {
       div.textContent = line.text;
     } else {
       const isUser = line.character === userCharacter;
+      const masked = shouldMaskLine(line, scriptVisibilityMode, userCharacter);
       div.className = 'script-line upcoming';
       div.innerHTML = `
         <div class="line-char-label ${isUser ? 'user-char' : 'other-char'}">
           ${line.character}${isUser ? ' (나)' : ''}
         </div>
-        <div class="line-text">${line.text}</div>
+        <div class="line-text${masked ? ' masked' : ''}">${masked ? '••••••' : line.text}</div>
       `;
     }
     viewer.appendChild(div);
