@@ -22,11 +22,33 @@ def _preprocess_pdf_text(text: str) -> str:
     - 3줄 이상 연속 빈 줄 → 2줄로 축소
     - 단독 페이지 번호 줄(숫자만 있는 줄) 제거
     """
-    # 단독 숫자 줄(페이지 번호) 제거
-    text = re.sub(r'(?m)^\s*\d{1,3}\s*$', '', text)
+    # 단독 숫자 줄(페이지 번호) 제거 — 앞뒤가 빈 줄인 경우만 제거해 오탐 방지
+    text = re.sub(r'(?m)(?<=\n)\n\s*\d{1,3}\s*\n(?=\n)', '\n\n', text)
     # 3줄 이상 빈 줄 → 2줄
     text = re.sub(r'\n{3,}', '\n\n', text)
     return text.strip()
+
+
+def repair_pdf_text(text: str) -> str:
+    """PDF layout 추출 후 남은 '번 한글+숫자' 순서 깨짐 보정.
+
+    layout 모드로 대부분의 reading order가 복원되지만,
+    폰트 인코딩 문제로 남는 패턴을 처리한다.
+
+    예: '번 배심원8'        → '8번 배심원'
+        '번 배심원장1 ( )' → '1번 배심원장 ( )'
+    """
+    def fix_line(line: str) -> str:
+        # '번 KOREAN_TEXT + NUMBER [tail]' 형태만 보정
+        m = re.match(r'^번\s+(.+?)(\d{1,2})(.*)', line)
+        if m:
+            body = m.group(1).rstrip()
+            num = m.group(2)
+            tail = m.group(3)
+            return f"{num}번 {body}{tail}"
+        return line
+
+    return "\n".join(fix_line(l) for l in text.split("\n"))
 
 
 @router.post("/parse-script")
@@ -62,7 +84,7 @@ async def extract_pdf(file: UploadFile = File(...)):
     try:
         content = await file.read()
         reader = PdfReader(io.BytesIO(content))
-        pages = [page.extract_text() or "" for page in reader.pages]
+        pages = [page.extract_text(extraction_mode="layout") or "" for page in reader.pages]
         full_text = "\n\n".join(p.strip() for p in pages if p.strip())
 
         if not full_text:
@@ -73,6 +95,7 @@ async def extract_pdf(file: UploadFile = File(...)):
             )
 
         full_text = _preprocess_pdf_text(full_text)
+        full_text = repair_pdf_text(full_text)
         print(f"[PDF] 추출 완료 - {len(reader.pages)}페이지, {len(full_text)}자")
 
         return json_response({
