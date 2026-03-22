@@ -7,11 +7,14 @@ from app.core.config import client
 from app.prompts.templates import PARSE_SCRIPT_SYSTEM
 
 # 단일 청크 최대 길이.
-# gpt-4o 출력 한도(4,096 tokens) 기준: 5,000자 ≈ 40~50대사 → 출력 ~2,200 tokens → 안전.
-CHUNK_SIZE = 5_000
+# character_analysis + relationships + lines JSON 출력이 크므로 보수적으로 설정.
+CHUNK_SIZE = 3_000
 
 # 이 길이 이하는 단일 호출 사용 (청크 오버헤드 불필요)
-CHUNK_THRESHOLD = 5_500
+CHUNK_THRESHOLD = 3_500
+
+# gpt-4o max output tokens — 기본값(4096)으로는 복잡한 청크 출력이 잘림
+MAX_TOKENS = 8_192
 
 
 def normalize_script_text(text: str) -> str:
@@ -61,13 +64,26 @@ def parse_script(script_text: str) -> dict:
     )
 
     results: list[dict] = []
+    failed_chunks: list[int] = []
     for i, chunk in enumerate(chunks):
         print(f"[Parser] 청크 {i + 1}/{len(chunks)} 파싱 중 ({len(chunk)}자)...")
-        try:
-            results.append(_parse_single(chunk))
+        chunk_result = None
+        for attempt in range(2):  # 최대 1회 재시도
+            try:
+                chunk_result = _parse_single(chunk)
+                break
+            except Exception as e:
+                if attempt == 0:
+                    print(f"[Parser] 청크 {i + 1}/{len(chunks)} 실패 (재시도 중): {e}")
+                else:
+                    print(f"[Parser] 청크 {i + 1}/{len(chunks)} 최종 실패: {e}")
+                    failed_chunks.append(i + 1)
+        if chunk_result is not None:
+            results.append(chunk_result)
             print(f"[Parser] 청크 {i + 1}/{len(chunks)} 완료")
-        except Exception as e:
-            raise RuntimeError(f"청크 {i + 1}/{len(chunks)} 파싱 실패: {e}") from e
+
+    if not results:
+        raise RuntimeError(f"모든 청크 파싱 실패 ({len(chunks)}개). 유효한 결과가 없습니다.")
 
     try:
         merged = _merge_results(results)
@@ -77,6 +93,16 @@ def parse_script(script_text: str) -> dict:
     # 청크 병합 후 전체 canonical remap
     alias_map = build_alias_map(merged.get("characters") or [])
     merged = remap_result(merged, alias_map)
+
+    if failed_chunks:
+        merged["partial_failure"] = {
+            "failed_chunks": failed_chunks,
+            "total_chunks": len(chunks),
+        }
+        print(
+            f"[Parser] 부분 실패: {len(failed_chunks)}/{len(chunks)} 청크 실패 "
+            f"(실패 청크: {failed_chunks})"
+        )
 
     print(
         f"[Parser] 병합 완료 - 캐릭터 {len(merged['characters'])}명, "
@@ -100,6 +126,7 @@ def _parse_single(text: str) -> dict:
             {"role": "user",   "content": f"다음 대본을 분석해주세요:\n\n{text}"},
         ],
         temperature=0.3,
+        max_tokens=MAX_TOKENS,
         response_format={"type": "json_object"},
     )
 
@@ -264,6 +291,13 @@ def _merge_results(results: list[dict]) -> dict:
             if char_norm not in char_analysis and analysis:
                 char_analysis[char_norm] = analysis
 
+    # relationships: 처음 등장한 관계 우선
+    relationships: dict[str, dict] = {}
+    for r in results:
+        for key, val in (r.get("relationships") or {}).items():
+            if key not in relationships and val:
+                relationships[key] = val
+
     # lines: 순서대로 concat + character strip 정규화
     all_lines: list[dict] = []
     for r in results:
@@ -277,5 +311,6 @@ def _merge_results(results: list[dict]) -> dict:
         "characters": characters,
         "character_descriptions": descriptions,
         "character_analysis": char_analysis,
+        "relationships": relationships,
         "lines": all_lines,
     }
