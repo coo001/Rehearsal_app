@@ -14,6 +14,29 @@ CHUNK_SIZE = 5_000
 CHUNK_THRESHOLD = 5_500
 
 
+def normalize_script_text(text: str) -> str:
+    """파싱 전 입력 텍스트 정규화.
+
+    - CRLF / CR → LF
+    - 각 줄 trailing whitespace 제거
+    - 연속 3개+ 빈 줄 → 빈 줄 1개로 축소
+    """
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    lines = [line.rstrip() for line in text.split("\n")]
+    # 연속 빈 줄 3개 이상 → 2개(빈 줄 1개)로 축소
+    result: list[str] = []
+    blank_count = 0
+    for line in lines:
+        if line == "":
+            blank_count += 1
+            if blank_count <= 2:
+                result.append(line)
+        else:
+            blank_count = 0
+            result.append(line)
+    return "\n".join(result).strip()
+
+
 def parse_script(script_text: str) -> dict:
     """대본 텍스트를 GPT-4o로 파싱해 구조화된 dict 반환.
 
@@ -21,11 +44,14 @@ def parse_script(script_text: str) -> dict:
     초과 → 청크 분할 후 병합.
     JSONDecodeError 또는 API 예외는 호출자(route)가 처리한다.
     """
+    script_text = normalize_script_text(script_text)
     total_chars = len(script_text)
 
     if total_chars <= CHUNK_THRESHOLD:
         print(f"[Parser] 경로: single  | 입력: {total_chars}자")
-        return _parse_single(script_text)
+        result = _parse_single(script_text)
+        alias_map = build_alias_map(result.get("characters") or [])
+        return remap_result(result, alias_map)
 
     chunks = _split_into_chunks(script_text)
     chunk_sizes = [len(c) for c in chunks]
@@ -47,6 +73,10 @@ def parse_script(script_text: str) -> dict:
         merged = _merge_results(results)
     except Exception as e:
         raise RuntimeError(f"청크 병합 실패: {e}") from e
+
+    # 청크 병합 후 전체 canonical remap
+    alias_map = build_alias_map(merged.get("characters") or [])
+    merged = remap_result(merged, alias_map)
 
     print(
         f"[Parser] 병합 완료 - 캐릭터 {len(merged['characters'])}명, "
@@ -121,6 +151,77 @@ def _split_into_chunks(text: str, max_chars: int = CHUNK_SIZE) -> list[str]:
     return chunks or [text]
 
 
+def canonicalize_character_name(name: str) -> str:
+    """Character 이름에서 노이즈를 제거하고 canonical form을 반환.
+
+    처리 규칙:
+    - 앞뒤 공백 / 연속 whitespace 정리
+    - 앞에 붙은 '번 ' 노이즈 제거: '번 배심원8' → '배심원8'
+    """
+    name = re.sub(r'\s+', ' ', name.strip())
+    # '번 배심원8' 같은 앞 '번 ' 노이즈 제거
+    name = re.sub(r'^번\s+', '', name)
+    return name
+
+
+def build_alias_map(characters: list[str]) -> dict[str, str]:
+    """character 이름 목록에서 canonical form 기준 alias map을 생성.
+
+    반환: {원래이름: canonical이름}
+    같은 canonical form을 가진 이름 중 '더 긴 것'을 canonical로 선택.
+    (노이즈 제거 후 동일하면 먼저 등장한 이름 우선)
+    """
+    canonical_to_first: dict[str, str] = {}
+    alias_map: dict[str, str] = {}
+    for name in characters:
+        canon = canonicalize_character_name(name)
+        if canon not in canonical_to_first:
+            canonical_to_first[canon] = name
+        alias_map[name] = canonical_to_first[canon]
+    return alias_map
+
+
+def remap_result(result: dict, alias_map: dict[str, str]) -> dict:
+    """parse 결과 전체에 alias_map을 적용해 canonical name으로 통일.
+
+    적용 대상: characters, character_descriptions, character_analysis,
+               relationships, lines[].character
+    """
+    def canon(name: str) -> str:
+        return alias_map.get(name, canonicalize_character_name(name))
+
+    result["characters"] = list(dict.fromkeys(
+        canon(c) for c in result.get("characters") or []
+    ))
+
+    result["character_descriptions"] = {
+        canon(k): v
+        for k, v in (result.get("character_descriptions") or {}).items()
+    }
+
+    result["character_analysis"] = {
+        canon(k): v
+        for k, v in (result.get("character_analysis") or {}).items()
+    }
+
+    new_rel: dict = {}
+    for key, val in (result.get("relationships") or {}).items():
+        if " -> " in key:
+            a, b = key.split(" -> ", 1)
+            new_key = f"{canon(a)} -> {canon(b)}"
+        else:
+            new_key = key
+        if new_key not in new_rel:
+            new_rel[new_key] = val
+    result["relationships"] = new_rel
+
+    for line in result.get("lines") or []:
+        if line.get("character"):
+            line["character"] = canon(line["character"])
+
+    return result
+
+
 def _merge_results(results: list[dict]) -> dict:
     """여러 청크 파싱 결과를 하나의 dict로 병합한다.
 
@@ -137,13 +238,13 @@ def _merge_results(results: list[dict]) -> dict:
             title = t
             break
 
-    # characters: 순서 있는 합집합
+    # characters: 순서 있는 합집합 (2자 미만 단편 제거)
     seen: set[str] = set()
     characters: list[str] = []
     for r in results:
         for c in r.get("characters") or []:
             c_norm = c.strip()
-            if c_norm and c_norm not in seen:
+            if c_norm and len(c_norm) >= 2 and c_norm not in seen:
                 seen.add(c_norm)
                 characters.append(c_norm)
 

@@ -99,6 +99,8 @@
     resize: vertical;
     transition: border 0.2s;
     line-height: 1.6;
+    direction: ltr;
+    unicode-bidi: plaintext;
   }
   textarea:focus { outline: none; border-color: var(--accent); }
   select {
@@ -456,7 +458,7 @@
           <span id="parse-btn-text">🔍 AI 대본 분석</span>
         </button>
         <span id="parse-status" class="audio-status hidden">
-          <span class="spinner"></span> GPT-4o가 대본을 분석 중...
+          <span class="spinner"></span> GPT-4o가 대본을 분석 중... (긴 대본은 1~2분 소요될 수 있습니다)
         </span>
       </div>
     </div>
@@ -799,15 +801,21 @@ async function parseScript() {
   btn.disabled = true;
   status.classList.remove('hidden');
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 180_000); // 3분
+
   try {
     const res = await fetch('/api/parse-script', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ script })
+      body: JSON.stringify({ script }),
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || '파싱 실패');
+      let detail = '파싱 실패';
+      try { detail = (await res.json()).detail || detail; } catch {}
+      throw new Error(detail);
     }
     parsedScript = await res.json();
     renderCharacters();
@@ -815,7 +823,12 @@ async function parseScript() {
     showPhase('characters');
     showToast(`${parsedScript.characters.length}명의 캐릭터를 분석했습니다!`, 'success');
   } catch (e) {
-    showToast(`오류: ${e.message}`, 'error');
+    clearTimeout(timeoutId);
+    const msg = e.name === 'AbortError'
+      ? '분석 시간이 초과됐습니다 (3분). 대본을 짧게 나눠 시도해보세요.'
+      : `분석 오류: ${e.message}`;
+    showToast(msg, 'error');
+    console.error('[parseScript]', e);
   } finally {
     btn.disabled = false;
     status.classList.add('hidden');
