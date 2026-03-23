@@ -4,6 +4,9 @@
 # 생성된 오디오 파일
 audio/
 
+# 저장된 세션 데이터 (개인 대본 포함)
+data/
+
 # Python
 __pycache__/
 *.pyc

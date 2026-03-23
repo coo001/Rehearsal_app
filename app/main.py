@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from app.api import audio, script, voices
+from app.api import audio, script, sessions, voices
 from app.core.config import AUDIO_DIR
 
 app = FastAPI(title="대본 연습 시스템")
@@ -34,9 +34,10 @@ app.mount("/audio",  StaticFiles(directory=str(AUDIO_DIR)), name="audio")
 app.mount("/static", StaticFiles(directory="static"),       name="static")
 
 # ─── API 라우터 ─────────────────────────────────────────────────
-app.include_router(script.router,  prefix="/api")
-app.include_router(voices.router,  prefix="/api")
-app.include_router(audio.router,   prefix="/api")
+app.include_router(script.router,   prefix="/api")
+app.include_router(voices.router,   prefix="/api")
+app.include_router(audio.router,    prefix="/api")
+app.include_router(sessions.router, prefix="/api")
 
 
 # ─── 루트 & 파비콘 ──────────────────────────────────────────────
