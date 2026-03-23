@@ -532,7 +532,15 @@
         </thead>
         <tbody id="voice-table-body"></tbody>
       </table>
-      <div style="margin-top:20px; display:flex; gap:10px; flex-wrap:wrap;">
+      <div style="margin-top:20px; padding-top:16px; border-top:1px solid var(--border);">
+        <div style="font-size:0.85rem; color:var(--muted); margin-bottom:8px;">대사 보기 방식</div>
+        <div class="visibility-mode-bar">
+          <button class="mode-btn active" data-mode="show_all" onclick="setVisibilityMode('show_all')">전체 보기</button>
+          <button class="mode-btn" data-mode="hide_my_lines" onclick="setVisibilityMode('hide_my_lines')">내 대사 가리기</button>
+          <button class="mode-btn" data-mode="hide_all_lines" onclick="setVisibilityMode('hide_all_lines')">모두 가리기</button>
+        </div>
+      </div>
+      <div style="margin-top:16px; display:flex; gap:10px; flex-wrap:wrap;">
         <button class="btn btn-outline" onclick="goBack(2)">← 역할 선택</button>
         <button class="btn btn-outline" id="auto-assign-btn" onclick="autoAssignVoices()">
           <span id="auto-assign-text">🤖 AI 자동 배정</span>
@@ -622,9 +630,9 @@
       <div class="panel-title" style="margin-bottom:8px; font-size:0.9rem; color:var(--muted);">전체 대본</div>
       <div class="visibility-mode-bar">
         <span>대본 보기:</span>
-        <button class="mode-btn active" id="mode-btn-show_all" onclick="setVisibilityMode('show_all')">전체 보기</button>
-        <button class="mode-btn" id="mode-btn-hide_my_lines" onclick="setVisibilityMode('hide_my_lines')">내 대사 가리기</button>
-        <button class="mode-btn" id="mode-btn-hide_all_lines" onclick="setVisibilityMode('hide_all_lines')">모두 가리기</button>
+        <button class="mode-btn active" data-mode="show_all" onclick="setVisibilityMode('show_all')">전체 보기</button>
+        <button class="mode-btn" data-mode="hide_my_lines" onclick="setVisibilityMode('hide_my_lines')">내 대사 가리기</button>
+        <button class="mode-btn" data-mode="hide_all_lines" onclick="setVisibilityMode('hide_all_lines')">모두 가리기</button>
       </div>
       <div class="script-viewer" id="script-viewer"></div>
     </div>
@@ -660,8 +668,7 @@ function shouldMaskLine(line, mode, userChar) {
 function setVisibilityMode(mode) {
   scriptVisibilityMode = mode;
   document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
-  const btn = document.getElementById('mode-btn-' + mode);
-  if (btn) btn.classList.add('active');
+  document.querySelectorAll(`[data-mode="${mode}"]`).forEach(btn => btn.classList.add('active'));
   const saved = currentLineIndex;
   buildScriptViewer();
   currentLineIndex = saved;
@@ -1274,13 +1281,9 @@ async function startGeneration() {
 }
 
 // ── 5단계: 연습 ───────────────────────────────────────────
-function startRehearsal() {
-  showPhase('rehearsal');
-
-  document.getElementById('my-role-label').textContent = userCharacter;
-
-  // 스크롤 뷰 렌더링
+function buildScriptViewer() {
   const viewer = document.getElementById('script-viewer');
+  if (!viewer || !parsedScript) return;
   viewer.innerHTML = '';
   parsedScript.lines.forEach((line, i) => {
     const div = document.createElement('div');
@@ -1301,6 +1304,14 @@ function startRehearsal() {
     }
     viewer.appendChild(div);
   });
+}
+
+function startRehearsal() {
+  showPhase('rehearsal');
+
+  document.getElementById('my-role-label').textContent = userCharacter;
+
+  buildScriptViewer();
 
   currentLineIndex = 0;
   updateDisplay();
@@ -1357,7 +1368,8 @@ function updateDisplay() {
     box.className = 'current-line-box user-turn';
     badge.className = 'turn-badge user';
     badge.textContent = `🎤 내 대사 (${userCharacter})`;
-    textEl.textContent = line.text;
+    const maskedUser = shouldMaskLine(line, scriptVisibilityMode, userCharacter);
+    textEl.textContent = maskedUser ? '••••••' : line.text;
     playBtn.textContent = listeningActive ? '✋ 완료 (수동)' : '✓ 읽었어요 →';
     playBtn.disabled = false;
     hintEl.textContent = autoAdvance
@@ -1367,7 +1379,8 @@ function updateDisplay() {
     box.className = 'current-line-box';
     badge.className = 'turn-badge ai';
     badge.textContent = `🤖 ${line.character}의 대사`;
-    textEl.textContent = line.text;
+    const maskedAI = shouldMaskLine(line, scriptVisibilityMode, userCharacter);
+    textEl.textContent = maskedAI ? '••••••' : line.text;
     playBtn.textContent = '▶ 재생';
     playBtn.disabled = false;
 
