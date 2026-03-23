@@ -140,6 +140,29 @@
   }
   .btn-outline:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
   .btn-danger { background: var(--danger); color: #fff; }
+  .btn-danger:hover:not(:disabled) { background: #e05555; }
+
+  /* 커스텀 확인 다이얼로그 */
+  .confirm-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 9999;
+  }
+  .confirm-overlay.hidden { display: none; }
+  .confirm-dialog {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 28px 28px 24px;
+    width: min(360px, 90vw);
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .confirm-dialog h3 { font-size: 1.05rem; font-weight: 700; }
+  .confirm-dialog p  { font-size: 0.88rem; color: var(--muted); line-height: 1.5; }
+  .confirm-dialog .confirm-buttons {
+    display: flex; gap: 10px; justify-content: flex-end; margin-top: 4px;
+  }
 
   /* 캐릭터 카드 */
   .character-grid {
@@ -643,6 +666,22 @@
   </div>
 
 </div><!-- /container -->
+
+<!-- 연습 끝내기 확인 다이얼로그 -->
+<div class="confirm-overlay hidden" id="end-rehearsal-overlay"
+     onclick="if(event.target===this) closeEndRehearsalDialog()">
+  <div class="confirm-dialog" role="dialog" aria-modal="true"
+       aria-labelledby="end-dlg-title">
+    <h3 id="end-dlg-title">연습을 끝낼까요?</h3>
+    <p>현재 재생과 진행 상태가 종료됩니다.</p>
+    <div class="confirm-buttons">
+      <button class="btn btn-outline" id="end-dlg-cancel"
+              onclick="closeEndRehearsalDialog()">계속 연습하기</button>
+      <button class="btn btn-danger"
+              onclick="_doEndRehearsal()">끝내기</button>
+    </div>
+  </div>
+</div>
 
 <!-- 토스트 알림 -->
 <div class="toast" id="toast"></div>
@@ -1717,7 +1756,21 @@ function restartRehearsal() {
 
 // ── 연습 끝내기 ───────────────────────────────────────────
 function endRehearsal() {
-  if (!confirm('연습을 끝낼까요?\n현재 재생과 진행 상태가 종료됩니다.')) return;
+  openEndRehearsalDialog();
+}
+
+function openEndRehearsalDialog() {
+  document.getElementById('end-rehearsal-overlay').classList.remove('hidden');
+  // Enter가 destructive가 되지 않도록 취소 버튼에 초기 포커스
+  document.getElementById('end-dlg-cancel').focus();
+}
+
+function closeEndRehearsalDialog() {
+  document.getElementById('end-rehearsal-overlay').classList.add('hidden');
+}
+
+function _doEndRehearsal() {
+  closeEndRehearsalDialog();
   clearCountdown();
   stopListening();
   if (currentAudio) { currentAudio.pause(); currentAudio = null; }
@@ -1745,6 +1798,11 @@ function goBack(toStep) {
 
 // 페이지 로드 시 저장된 세션 목록 표시
 document.addEventListener('DOMContentLoaded', loadSessions);
+
+// ESC 키로 다이얼로그 닫기
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeEndRehearsalDialog();
+});
 </script>
 </body>
 </html>
