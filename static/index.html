@@ -583,6 +583,10 @@
                 style="border-color:var(--muted);">
           ⏸ 수동 진행
         </button>
+        <button class="btn btn-outline" onclick="endRehearsal()"
+                style="border-color:var(--danger); color:var(--danger);">
+          ✕ 연습 끝내기
+        </button>
       </div>
     </div>
 
@@ -1709,6 +1713,24 @@ function restartRehearsal() {
   if (autoAdvance) {
     setTimeout(() => playCurrentLine(), 500);
   }
+}
+
+// ── 연습 끝내기 ───────────────────────────────────────────
+function endRehearsal() {
+  if (!confirm('연습을 끝낼까요?\n현재 재생과 진행 상태가 종료됩니다.')) return;
+  clearCountdown();
+  stopListening();
+  if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+  if (autoAdvance) {
+    autoAdvance = false;
+    const toggleBtn = document.getElementById('auto-advance-toggle');
+    if (toggleBtn) {
+      toggleBtn.textContent = '⏸ 수동 진행';
+      toggleBtn.style.borderColor = 'var(--muted)';
+      toggleBtn.style.color = '';
+    }
+  }
+  goBack(3);
 }
 
 // ── 뒤로 가기 ────────────────────────────────────────────
