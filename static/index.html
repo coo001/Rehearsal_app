@@ -508,7 +508,7 @@
           <span id="parse-btn-text">🔍 AI 대본 분석</span>
         </button>
         <span id="parse-status" class="audio-status hidden">
-          <span class="spinner"></span> GPT-4o가 대본을 분석 중... (짧은 대본 1~2분, 50페이지 이상 5~10분 소요)
+          <span class="spinner"></span> GPT-4o가 대본을 분석 중... (짧은 대본 1~2분, 50페이지 이상 5~20분 소요)
         </span>
       </div>
     </div>
@@ -965,7 +965,7 @@ async function parseScript() {
   status.classList.remove('hidden');
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 600_000); // 10분 (긴 대본 대응)
+  const timeoutId = setTimeout(() => controller.abort(), 1_200_000); // 20분 (긴 대본 대응)
 
   try {
     const res = await fetch('/api/parse-script', {
@@ -993,7 +993,7 @@ async function parseScript() {
   } catch (e) {
     clearTimeout(timeoutId);
     const msg = e.name === 'AbortError'
-      ? '분석 시간이 초과됐습니다 (10분). 대본을 짧게 나눠 시도해보세요.'
+      ? '분석 시간이 초과됐습니다 (20분). 대본을 짧게 나눠 시도해보세요.'
       : `분석 오류: ${e.message}`;
     showToast(msg, 'error');
     console.error('[parseScript]', e);

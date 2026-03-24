@@ -174,12 +174,26 @@ def _enrich_meta(merged: dict) -> dict:
     """병합 결과에 character_analysis + relationships를 단일 API 호출로 추가.
 
     실패 시 빈 dict로 fallback — 리허설 흐름은 character_analysis 없이도 동작.
+    캐스트가 많을수록 relationships 쌍이 폭발적으로 늘어나므로,
+    대사 빈도 기준 상위 MAX_ENRICH_CHARS명으로 제한한다.
     """
+    MAX_ENRICH_CHARS = 8  # 이 이상은 relationships 쌍이 너무 많아 token 초과 위험
+
     chars = merged.get("characters") or []
     if not chars:
         merged.setdefault("character_analysis", {})
         merged.setdefault("relationships", {})
         return merged
+
+    # 대사 빈도 기준 상위 N명으로 제한
+    if len(chars) > MAX_ENRICH_CHARS:
+        line_counts: dict[str, int] = {}
+        for line in merged.get("lines") or []:
+            c = line.get("character")
+            if c:
+                line_counts[c] = line_counts.get(c, 0) + 1
+        chars = sorted(chars, key=lambda c: line_counts.get(c, 0), reverse=True)[:MAX_ENRICH_CHARS]
+        print(f"[Parser] Meta enrich: 캐스트 많음 → 상위 {MAX_ENRICH_CHARS}명만 분석")
 
     descs = merged.get("character_descriptions") or {}
     chars_info = "\n".join(
@@ -195,7 +209,7 @@ def _enrich_meta(merged: dict) -> dict:
                 {"role": "user",   "content": prompt},
             ],
             temperature=0.3,
-            max_tokens=4_096,
+            max_tokens=8_192,  # 12명 이상 캐스트도 relationships가 잘리지 않게
             response_format={"type": "json_object"},
         )
         raw = response.choices[0].message.content or "{}"
