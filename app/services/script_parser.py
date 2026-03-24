@@ -3,6 +3,8 @@
 import hashlib
 import json
 import re
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from app.core.config import client
@@ -16,6 +18,9 @@ CHUNK_THRESHOLD = 3_500
 
 # fast parse용 output token 상한 — actor fields 없으므로 4096으로 충분
 MAX_TOKENS = 4_096
+
+# 병렬 청크 처리 워커 수 — API rate limit 여유 있게 보수적으로 설정
+MAX_WORKERS = 4
 
 # 파싱 결과 캐시 디렉토리
 CACHE_DIR = Path("data/parse_cache")
@@ -48,12 +53,16 @@ def parse_script(script_text: str) -> dict:
     """대본 텍스트를 GPT-4o로 파싱해 구조화된 dict 반환.
 
     1. MD5 캐시 히트 → 즉시 반환
-    2. Fast chunked parse (actor fields 없음)
+    2. Fast chunked parse — MAX_WORKERS 병렬 처리
     3. 청크 병합 후 단일 _enrich_meta 호출 (character_analysis + relationships)
     4. 결과 캐시 저장
     """
+    t_total = time.time()
+
+    t = time.time()
     script_text = normalize_script_text(script_text)
     total_chars = len(script_text)
+    print(f"[Parser] normalize: {time.time()-t:.2f}s ({total_chars}자)")
 
     # 캐시 확인
     cache_key = hashlib.md5(script_text.encode()).hexdigest()
@@ -64,46 +73,57 @@ def parse_script(script_text: str) -> dict:
 
     if total_chars <= CHUNK_THRESHOLD:
         print(f"[Parser] 경로: single  | 입력: {total_chars}자")
+        t = time.time()
         result = _parse_single(script_text)
+        print(f"[Parser] single parse: {time.time()-t:.1f}s")
         alias_map = build_alias_map(result.get("characters") or [])
         result = remap_result(result, alias_map)
+        t = time.time()
         result = _enrich_meta(result)
+        print(f"[Parser] enrich_meta: {time.time()-t:.1f}s")
         _save_cache(cache_key, result)
+        print(f"[Parser] 총 소요시간: {time.time()-t_total:.1f}s")
         return result
 
+    t = time.time()
     chunks = _split_into_chunks(script_text)
-    chunk_sizes = [len(c) for c in chunks]
     print(
-        f"[Parser] 경로: chunked | 입력: {total_chars}자 => "
-        f"{len(chunks)}개 청크 크기: {chunk_sizes}"
+        f"[Parser] chunk split: {time.time()-t:.2f}s | "
+        f"{len(chunks)}개 청크 (크기: {[len(c) for c in chunks]})"
     )
 
-    results: list[dict] = []
+    # 병렬 청크 처리
+    t = time.time()
+    chunk_results: dict[int, dict] = {}
     failed_chunks: list[int] = []
-    for i, chunk in enumerate(chunks):
-        print(f"[Parser] 청크 {i + 1}/{len(chunks)} 파싱 중 ({len(chunk)}자)...")
-        chunk_result = None
-        for attempt in range(2):  # 최대 1회 재시도
-            try:
-                chunk_result = _parse_single(chunk)
-                break
-            except Exception as e:
-                if attempt == 0:
-                    print(f"[Parser] 청크 {i + 1}/{len(chunks)} 실패 (재시도 중): {e}")
-                else:
-                    print(f"[Parser] 청크 {i + 1}/{len(chunks)} 최종 실패: {e}")
-                    failed_chunks.append(i + 1)
-        if chunk_result is not None:
-            results.append(chunk_result)
-            print(f"[Parser] 청크 {i + 1}/{len(chunks)} 완료")
+
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        future_to_idx = {
+            executor.submit(_parse_chunk_with_retry, chunk, i, len(chunks)): i
+            for i, chunk in enumerate(chunks)
+        }
+        for future in as_completed(future_to_idx):
+            i = future_to_idx[future]
+            result = future.result()  # _parse_chunk_with_retry는 None 또는 dict 반환
+            if result is not None:
+                chunk_results[i] = result
+            else:
+                failed_chunks.append(i + 1)
+
+    print(f"[Parser] chunk parse (병렬 {MAX_WORKERS}workers): {time.time()-t:.1f}s")
+
+    # 인덱스 순 정렬 후 병합
+    results = [chunk_results[i] for i in sorted(chunk_results.keys())]
 
     if not results:
         raise RuntimeError(f"모든 청크 파싱 실패 ({len(chunks)}개). 유효한 결과가 없습니다.")
 
+    t = time.time()
     try:
         merged = _merge_results(results)
     except Exception as e:
         raise RuntimeError(f"청크 병합 실패: {e}") from e
+    print(f"[Parser] merge: {time.time()-t:.2f}s")
 
     # 청크 병합 후 전체 canonical remap
     alias_map = build_alias_map(merged.get("characters") or [])
@@ -125,8 +145,12 @@ def parse_script(script_text: str) -> dict:
     )
 
     # 단일 meta enrich (character_analysis + relationships)
+    t = time.time()
     merged = _enrich_meta(merged)
+    print(f"[Parser] enrich_meta: {time.time()-t:.1f}s")
+
     _save_cache(cache_key, merged)
+    print(f"[Parser] 총 소요시간: {time.time()-t_total:.1f}s")
     return merged
 
 
@@ -168,6 +192,22 @@ def _parse_single(text: str) -> dict:
             f"[Parser]    LLM 응답 원문 (앞 300자): {raw[:300]!r}"
         )
         raise
+
+
+def _parse_chunk_with_retry(chunk: str, idx: int, total: int) -> dict | None:
+    """단일 청크를 파싱한다. 실패 시 1회 재시도. None 반환 시 실패."""
+    t = time.time()
+    for attempt in range(2):
+        try:
+            result = _parse_single(chunk)
+            print(f"[Parser] 청크 {idx+1}/{total} 완료 ({time.time()-t:.1f}s)")
+            return result
+        except Exception as e:
+            if attempt == 0:
+                print(f"[Parser] 청크 {idx+1}/{total} 실패 (재시도 중): {e}")
+            else:
+                print(f"[Parser] 청크 {idx+1}/{total} 최종 실패: {e}")
+    return None
 
 
 def _enrich_meta(merged: dict) -> dict:
