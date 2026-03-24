@@ -939,17 +939,28 @@ async function handlePdfUpload(input) {
   const formData = new FormData();
   formData.append('file', file);
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 120_000); // 2분
+
   try {
-    const res = await fetch('/api/extract-pdf', { method: 'POST', body: formData });
+    const res = await fetch('/api/extract-pdf', { method: 'POST', body: formData, signal: controller.signal });
+    clearTimeout(timeoutId);
     if (!res.ok) {
       const err = await res.json();
       throw new Error(err.detail || 'PDF 추출 실패');
     }
     const data = await res.json();
     document.getElementById('script-input').value = data.text;
-    showToast(`PDF 추출 완료 (${data.total_pages}페이지, ${data.char_count.toLocaleString()}자). 대본을 확인하고 분석을 시작하세요.`, 'success');
+    const skipMsg = data.skipped_pages?.length
+      ? ` (${data.skipped_pages.length}페이지 추출 실패 skip)`
+      : '';
+    showToast(`PDF 추출 완료 (${data.total_pages}페이지, ${data.char_count.toLocaleString()}자${skipMsg}). 대본을 확인하고 분석을 시작하세요.`, 'success');
   } catch (e) {
-    showToast(`PDF 오류: ${e.message}`, 'error');
+    clearTimeout(timeoutId);
+    const msg = e.name === 'AbortError'
+      ? 'PDF 추출 시간이 초과됐습니다 (2분). 파일이 너무 크거나 페이지 수가 많습니다.'
+      : `PDF 오류: ${e.message}`;
+    showToast(msg, 'error');
   } finally {
     status.classList.add('hidden');
   }

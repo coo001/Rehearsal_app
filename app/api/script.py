@@ -5,6 +5,7 @@
 import io
 import json
 import re
+import time
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from pypdf import PdfReader
@@ -77,6 +78,9 @@ async def parse_script_endpoint(req: ParseScriptRequest):
         raise HTTPException(500, f"대본 파싱 중 오류 ({type(e).__name__}): {e}")
 
 
+MAX_PDF_PAGES = 150  # 이 이상은 추출이 과도하게 느려질 수 있음
+
+
 @router.post("/extract-pdf")
 async def extract_pdf(file: UploadFile = File(...)):
     if not (file.filename or "").lower().endswith(".pdf"):
@@ -84,7 +88,33 @@ async def extract_pdf(file: UploadFile = File(...)):
     try:
         content = await file.read()
         reader = PdfReader(io.BytesIO(content))
-        pages = [page.extract_text(extraction_mode="layout") or "" for page in reader.pages]
+        total_pages = len(reader.pages)
+
+        if total_pages > MAX_PDF_PAGES:
+            raise HTTPException(
+                422,
+                f"PDF 페이지 수가 너무 많습니다 ({total_pages}페이지). "
+                f"{MAX_PDF_PAGES}페이지 이하로 나눠 업로드해주세요."
+            )
+
+        print(f"[PDF] 추출 시작 - {total_pages}페이지")
+        t_total = time.time()
+
+        pages: list[str] = []
+        skipped: list[int] = []
+        for i, page in enumerate(reader.pages):
+            t_page = time.time()
+            try:
+                text = page.extract_text(extraction_mode="layout") or ""
+                elapsed = time.time() - t_page
+                if elapsed > 3.0:
+                    print(f"[PDF] 페이지 {i + 1}/{total_pages} 느림 ({elapsed:.1f}s)")
+                pages.append(text)
+            except Exception as e:
+                print(f"[PDF] 페이지 {i + 1}/{total_pages} 추출 실패 (skip): {e}")
+                skipped.append(i + 1)
+                pages.append("")
+
         full_text = "\n\n".join(p.strip() for p in pages if p.strip())
 
         if not full_text:
@@ -96,12 +126,19 @@ async def extract_pdf(file: UploadFile = File(...)):
 
         full_text = _preprocess_pdf_text(full_text)
         full_text = repair_pdf_text(full_text)
-        print(f"[PDF] 추출 완료 - {len(reader.pages)}페이지, {len(full_text)}자")
+
+        total_elapsed = time.time() - t_total
+        skip_info = f", 실패 skip {len(skipped)}페이지" if skipped else ""
+        print(
+            f"[PDF] 추출 완료 - {total_pages}페이지{skip_info}, "
+            f"{len(full_text)}자, {total_elapsed:.1f}s"
+        )
 
         return json_response({
             "text": full_text,
             "char_count": len(full_text),
-            "total_pages": len(reader.pages),
+            "total_pages": total_pages,
+            "skipped_pages": skipped,
         })
     except HTTPException:
         raise
