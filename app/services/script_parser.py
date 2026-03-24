@@ -1,20 +1,24 @@
 """GPT-4o 대본 파싱 서비스."""
 
+import hashlib
 import json
 import re
+from pathlib import Path
 
 from app.core.config import client
-from app.prompts.templates import PARSE_SCRIPT_SYSTEM
+from app.prompts.templates import ENRICH_META_SYSTEM, PARSE_FAST_SYSTEM
 
-# 단일 청크 최대 길이.
-# character_analysis + relationships + lines JSON 출력이 크므로 보수적으로 설정.
+# 단일 청크 최대 길이
 CHUNK_SIZE = 3_000
 
 # 이 길이 이하는 단일 호출 사용 (청크 오버헤드 불필요)
 CHUNK_THRESHOLD = 3_500
 
-# gpt-4o max output tokens — 기본값(4096)으로는 복잡한 청크 출력이 잘림
-MAX_TOKENS = 8_192
+# fast parse용 output token 상한 — actor fields 없으므로 4096으로 충분
+MAX_TOKENS = 4_096
+
+# 파싱 결과 캐시 디렉토리
+CACHE_DIR = Path("data/parse_cache")
 
 
 def normalize_script_text(text: str) -> str:
@@ -43,18 +47,29 @@ def normalize_script_text(text: str) -> str:
 def parse_script(script_text: str) -> dict:
     """대본 텍스트를 GPT-4o로 파싱해 구조화된 dict 반환.
 
-    CHUNK_THRESHOLD 이하 → 단일 호출.
-    초과 → 청크 분할 후 병합.
-    JSONDecodeError 또는 API 예외는 호출자(route)가 처리한다.
+    1. MD5 캐시 히트 → 즉시 반환
+    2. Fast chunked parse (actor fields 없음)
+    3. 청크 병합 후 단일 _enrich_meta 호출 (character_analysis + relationships)
+    4. 결과 캐시 저장
     """
     script_text = normalize_script_text(script_text)
     total_chars = len(script_text)
+
+    # 캐시 확인
+    cache_key = hashlib.md5(script_text.encode()).hexdigest()
+    cached = _load_cache(cache_key)
+    if cached is not None:
+        print(f"[Parser] 캐시 히트: {cache_key[:8]}... ({total_chars}자)")
+        return cached
 
     if total_chars <= CHUNK_THRESHOLD:
         print(f"[Parser] 경로: single  | 입력: {total_chars}자")
         result = _parse_single(script_text)
         alias_map = build_alias_map(result.get("characters") or [])
-        return remap_result(result, alias_map)
+        result = remap_result(result, alias_map)
+        result = _enrich_meta(result)
+        _save_cache(cache_key, result)
+        return result
 
     chunks = _split_into_chunks(script_text)
     chunk_sizes = [len(c) for c in chunks]
@@ -108,13 +123,17 @@ def parse_script(script_text: str) -> dict:
         f"[Parser] 병합 완료 - 캐릭터 {len(merged['characters'])}명, "
         f"대사 {len(merged['lines'])}줄"
     )
+
+    # 단일 meta enrich (character_analysis + relationships)
+    merged = _enrich_meta(merged)
+    _save_cache(cache_key, merged)
     return merged
 
 
 # ── 내부 헬퍼 ──────────────────────────────────────────────
 
 def _parse_single(text: str) -> dict:
-    """단일 텍스트를 GPT-4o 1회 호출로 파싱.
+    """단일 텍스트를 GPT-4o 1회 호출로 구조적 파싱 (actor analysis 없음).
 
     finish_reason='length': 출력 토큰 한도 초과 → JSON 잘림 → JSONDecodeError 가능성 높음.
     JSON 파싱 실패 시 LLM 원문 앞 300자를 로그에 남겨 원인 파악을 돕는다.
@@ -122,7 +141,7 @@ def _parse_single(text: str) -> dict:
     response = client.chat.completions.create(
         model="gpt-4o",
         messages=[
-            {"role": "system", "content": PARSE_SCRIPT_SYSTEM},
+            {"role": "system", "content": PARSE_FAST_SYSTEM},
             {"role": "user",   "content": f"다음 대본을 분석해주세요:\n\n{text}"},
         ],
         temperature=0.3,
@@ -149,6 +168,64 @@ def _parse_single(text: str) -> dict:
             f"[Parser]    LLM 응답 원문 (앞 300자): {raw[:300]!r}"
         )
         raise
+
+
+def _enrich_meta(merged: dict) -> dict:
+    """병합 결과에 character_analysis + relationships를 단일 API 호출로 추가.
+
+    실패 시 빈 dict로 fallback — 리허설 흐름은 character_analysis 없이도 동작.
+    """
+    chars = merged.get("characters") or []
+    if not chars:
+        merged.setdefault("character_analysis", {})
+        merged.setdefault("relationships", {})
+        return merged
+
+    descs = merged.get("character_descriptions") or {}
+    chars_info = "\n".join(
+        f"- {c}: {descs.get(c, '설명 없음')}" for c in chars
+    )
+    prompt = f"캐릭터 목록:\n{chars_info}"
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": ENRICH_META_SYSTEM},
+                {"role": "user",   "content": prompt},
+            ],
+            temperature=0.3,
+            max_tokens=4_096,
+            response_format={"type": "json_object"},
+        )
+        raw = response.choices[0].message.content or "{}"
+        enrich = json.loads(raw)
+        merged["character_analysis"] = enrich.get("character_analysis") or {}
+        merged["relationships"] = enrich.get("relationships") or {}
+        print(f"[Parser] Meta enrich 완료 - 캐릭터 {len(chars)}명")
+    except Exception as e:
+        print(f"[Parser] Meta enrich 실패 (fallback 빈 dict): {e}")
+        merged.setdefault("character_analysis", {})
+        merged.setdefault("relationships", {})
+
+    return merged
+
+
+def _load_cache(key: str) -> dict | None:
+    path = CACHE_DIR / f"{key}.json"
+    if path.exists():
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+    return None
+
+
+def _save_cache(key: str, data: dict) -> None:
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    (CACHE_DIR / f"{key}.json").write_text(
+        json.dumps(data, ensure_ascii=False), encoding="utf-8"
+    )
 
 
 def _split_into_chunks(text: str, max_chars: int = CHUNK_SIZE) -> list[str]:

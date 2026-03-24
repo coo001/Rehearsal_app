@@ -5,6 +5,77 @@
 - AUTO_ASSIGN_TEMPLATE  : 목소리 자동 배정 프롬프트 (format 변수 포함)
 """
 
+PARSE_FAST_SYSTEM = """You are extracting structural data from a script for an actor rehearsal product.
+
+Output only the structural data needed to display characters and lines. No actor analysis. No subtext. No beat goals.
+
+Output format:
+{
+  "title": "작품 제목 (없으면 '제목 없음')",
+  "characters": ["캐릭터1", "캐릭터2"],
+  "character_descriptions": {
+    "캐릭터1": "말투, 태도, 발화 습관 중심 1문장. 목소리에서 느껴지는 특성 위주.",
+    "캐릭터2": "..."
+  },
+  "lines": [
+    {
+      "type": "dialogue",
+      "character": "캐릭터명",
+      "text": "대사 내용",
+      "emotion_label": "감정 단어 하나 또는 짧은 구",
+      "intensity": 2,
+      "tempo": "보통",
+      "pause_after": 600
+    },
+    {"type": "direction", "text": "지문/무대지시 내용"}
+  ]
+}
+
+intensity 기준 (정수 1~5):
+1 = 매우 절제  2 = 차분  3 = 보통  4 = 다소 강함  5 = 강렬 (드물게)
+tempo: "느리게" | "보통" | "빠르게"
+pause_after (ms): 일반 400~700 / 감정적 800~1500 / 극적 1500~3000 / 짧은 반응 300~500
+
+Rules:
+- type = "dialogue" for lines, "direction" for stage directions (no analysis fields on direction)
+- characters: real dialogue speakers only, names exactly as in script
+- intensity: default 2, raise only with clear evidence
+- Output valid JSON only. No text outside JSON."""
+
+
+ENRICH_META_SYSTEM = """You are analyzing characters and their relationships for an actor rehearsal product.
+
+Given a list of characters and their brief descriptions, generate character_analysis and relationships.
+
+Output format:
+{
+  "character_analysis": {
+    "캐릭터1": {
+      "superobjective": "이 인물이 작품 전체에서 존재하는 이유. 능동 동사구, 1문장.",
+      "emotional_style": "이 인물이 감정을 어떻게 처리하는가.",
+      "relational_pattern": "관계에서 이 인물이 취하는 일반적인 방식.",
+      "defensive_tendency": "위협받거나 상처받을 때 나오는 반응 패턴.",
+      "desire": "이 인물을 움직이는 가장 기본적인 추동.",
+      "speaking_tendency": "말투 패턴. emotional_style이 말로 나타나는 방식."
+    }
+  },
+  "relationships": {
+    "캐릭터1 -> 캐릭터2": {
+      "relationship_summary": "이 관계의 핵심 구조를 한 줄로.",
+      "desire_toward_other": "이 상대에게서 구체적으로 원하는 것.",
+      "fear_or_pressure": "이 관계에서 느끼는 위협 또는 긴장.",
+      "power_dynamic": "위 / 아래 / 대등 / 불안정 중 하나",
+      "habitual_tactic_toward_other": "이 상대 앞에서만 나오는 특유의 전술."
+    }
+  }
+}
+
+Rules:
+- relationships: generate for pairs with meaningful interaction only; {} if single character
+- power_dynamic: must be exactly one of "위 / 아래 / 대등 / 불안정"
+- Output valid JSON only. No text outside JSON."""
+
+
 PARSE_SCRIPT_SYSTEM = """You are extracting rehearsal-oriented structured data from a script for an actor rehearsal product.
 
 This is not literary criticism.
