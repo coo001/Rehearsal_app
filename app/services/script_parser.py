@@ -1,6 +1,8 @@
 """GPT-4o 대본 파싱 서비스."""
 
+import base64
 import hashlib
+import io
 import json
 import re
 import time
@@ -8,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from app.core.config import client
-from app.prompts.templates import ENRICH_META_SYSTEM, PARSE_FAST_SYSTEM
+from app.prompts.templates import ENRICH_META_SYSTEM, PARSE_FAST_SYSTEM, PARSE_SCRIPT_SYSTEM
 
 # 단일 청크 최대 길이
 CHUNK_SIZE = 3_000
@@ -24,6 +26,61 @@ MAX_WORKERS = 4
 
 # 파싱 결과 캐시 디렉토리
 CACHE_DIR = Path("data/parse_cache")
+
+
+def parse_script_pdf(pdf_bytes: bytes, filename: str = "script.pdf", total_pages: int = 0) -> dict:
+    """PDF를 base64 인라인으로 Responses API에 직접 전달해 파싱한다.
+
+    chat.completions는 file content type을 지원하지 않으므로
+    Responses API(client.responses.create)로 base64 인라인 전달.
+    Files API 업로드/삭제 없이 PDF 바이트를 직접 모델에 전달한다.
+    """
+    t_total = time.time()
+    cache_key = hashlib.md5(pdf_bytes).hexdigest()
+    cached = _load_cache(cache_key)
+    if cached is not None:
+        print(f"[PDF-Direct] 캐시 히트: {cache_key[:8]}... ({total_pages}페이지)")
+        return cached
+
+    pdf_b64 = base64.b64encode(pdf_bytes).decode()
+    print(f"[PDF-Direct] Responses API 호출 중... ({len(pdf_bytes):,}B, {total_pages}페이지)")
+    t = time.time()
+    response = client.responses.create(
+        model="gpt-4o",
+        instructions=PARSE_SCRIPT_SYSTEM,
+        input=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_file",
+                        "filename": filename,
+                        "file_data": f"data:application/pdf;base64,{pdf_b64}",
+                    },
+                    {"type": "input_text", "text": "이 대본을 분석해주세요."},
+                ],
+            }
+        ],
+        text={"format": {"type": "json_object"}},
+        temperature=0.3,
+        max_output_tokens=8_192,
+    )
+    print(f"[PDF-Direct] 완료 ({time.time()-t:.1f}s)")
+
+    raw = response.output_text or "{}"
+    try:
+        result = json.loads(raw)
+    except json.JSONDecodeError as e:
+        print(f"[PDF-Direct] JSONDecodeError — 응답 앞 300자: {raw[:300]!r}")
+        raise
+
+    alias_map = build_alias_map(result.get("characters") or [])
+    result = remap_result(result, alias_map)
+    result.setdefault("character_analysis", {})
+    result.setdefault("relationships", {})
+    _save_cache(cache_key, result)
+    print(f"[PDF-Direct] 총 소요시간: {time.time()-t_total:.1f}s")
+    return result
 
 
 def normalize_script_text(text: str) -> str:
@@ -72,15 +129,15 @@ def parse_script(script_text: str) -> dict:
         return cached
 
     if total_chars <= CHUNK_THRESHOLD:
+        # 짧은 대본: PARSE_SCRIPT_SYSTEM 1회 호출로 완전 파싱 (enrich 불필요)
         print(f"[Parser] 경로: single  | 입력: {total_chars}자")
         t = time.time()
-        result = _parse_single(script_text)
-        print(f"[Parser] single parse: {time.time()-t:.1f}s")
+        result = _parse_single_full(script_text)
+        print(f"[Parser] single full parse: {time.time()-t:.1f}s")
         alias_map = build_alias_map(result.get("characters") or [])
         result = remap_result(result, alias_map)
-        t = time.time()
-        result = _enrich_meta(result)
-        print(f"[Parser] enrich_meta: {time.time()-t:.1f}s")
+        result.setdefault("character_analysis", {})
+        result.setdefault("relationships", {})
         _save_cache(cache_key, result)
         print(f"[Parser] 총 소요시간: {time.time()-t_total:.1f}s")
         return result
@@ -183,6 +240,37 @@ def _parse_single(text: str) -> dict:
             f"(입력 {len(text)}자) - JSON이 중간에 잘렸을 수 있음"
         )
 
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as e:
+        print(
+            f"[Parser] JSONDecodeError - finish_reason='{finish_reason}', "
+            f"입력 {len(text)}자\n"
+            f"[Parser]    LLM 응답 원문 (앞 300자): {raw[:300]!r}"
+        )
+        raise
+
+
+def _parse_single_full(text: str) -> dict:
+    """짧은 대본 전용 — PARSE_SCRIPT_SYSTEM 1회 호출로 character_analysis + relationships + line fields 포함.
+
+    긴 대본용 PARSE_FAST + _enrich_meta (2회 순차 호출) 대신 단일 호출로 처리해 속도 개선.
+    """
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": PARSE_SCRIPT_SYSTEM},
+            {"role": "user",   "content": f"다음 대본을 분석해주세요:\n\n{text}"},
+        ],
+        temperature=0.3,
+        max_tokens=8_192,
+        response_format={"type": "json_object"},
+    )
+    choice = response.choices[0]
+    finish_reason = choice.finish_reason
+    raw = choice.message.content or ""
+    if finish_reason != "stop":
+        print(f"[Parser] WARN finish_reason='{finish_reason}' (single full, 입력 {len(text)}자)")
     try:
         return json.loads(raw)
     except json.JSONDecodeError as e:

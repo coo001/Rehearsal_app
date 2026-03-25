@@ -11,7 +11,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from pypdf import PdfReader
 
 from app.schemas.requests import ParseScriptRequest
-from app.services.script_parser import parse_script
+from app.services.script_parser import parse_script, parse_script_pdf
 from app.utils.response import json_response
 
 router = APIRouter()
@@ -79,6 +79,56 @@ async def parse_script_endpoint(req: ParseScriptRequest):
 
 
 MAX_PDF_PAGES = 150  # 이 이상은 추출이 과도하게 느려질 수 있음
+PDF_DIRECT_MAX_PAGES = 50  # 이 이하: direct parse / 초과: text extraction + chunked parse
+
+
+@router.post("/parse-pdf")
+async def parse_pdf_direct(file: UploadFile = File(...)):
+    """PDF를 GPT-4o에 직접 전달해 대본을 파싱한다.
+
+    50페이지 이하: Files API direct parse (reading order 깨짐 회피)
+    50페이지 초과: text extraction + 청크 파싱 fallback
+    """
+    if not (file.filename or "").lower().endswith(".pdf"):
+        raise HTTPException(400, "PDF 파일만 지원합니다.")
+    try:
+        content = await file.read()
+        reader = PdfReader(io.BytesIO(content))
+        total_pages = len(reader.pages)
+
+        if total_pages > MAX_PDF_PAGES:
+            raise HTTPException(
+                422,
+                f"PDF 페이지 수가 너무 많습니다 ({total_pages}페이지). "
+                f"{MAX_PDF_PAGES}페이지 이하로 나눠 업로드해주세요."
+            )
+
+        if total_pages > PDF_DIRECT_MAX_PAGES:
+            # Fallback: text extraction + 청크 파싱 (기존 경로)
+            print(f"[parse-pdf] {total_pages}페이지 > {PDF_DIRECT_MAX_PAGES} → text fallback")
+            pages: list[str] = []
+            for i, page in enumerate(reader.pages):
+                try:
+                    pages.append(page.extract_text(extraction_mode="layout") or "")
+                except Exception as e:
+                    print(f"[PDF] 페이지 {i+1} 추출 실패 (skip): {e}")
+                    pages.append("")
+            full_text = "\n\n".join(p.strip() for p in pages if p.strip())
+            if not full_text:
+                raise HTTPException(422, "PDF에서 텍스트를 추출할 수 없습니다.")
+            full_text = _preprocess_pdf_text(full_text)
+            full_text = repair_pdf_text(full_text)
+            data = parse_script(full_text)
+        else:
+            data = parse_script_pdf(content, file.filename or "script.pdf", total_pages)
+
+        return json_response(data)
+    except HTTPException:
+        raise
+    except json.JSONDecodeError as e:
+        raise HTTPException(500, f"PDF 파싱 실패 (LLM JSON 오류): {e}")
+    except Exception as e:
+        raise HTTPException(500, f"PDF 파싱 중 오류 ({type(e).__name__}): {e}")
 
 
 @router.post("/extract-pdf")

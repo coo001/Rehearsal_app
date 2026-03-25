@@ -485,7 +485,7 @@
         <input type="file" id="pdf-file-input" accept=".pdf" style="display:none"
                onchange="handlePdfUpload(this)">
         <span id="pdf-status" class="audio-status hidden">
-          <span class="spinner"></span> PDF 텍스트 추출 중...
+          <span class="spinner"></span> PDF 분석 중... (1~5분 소요)
         </span>
       </div>
 
@@ -927,7 +927,7 @@ function showPhase(phase) {
 }
 
 // ── 1단계: 대본 파싱 ──────────────────────────────────────
-// ── PDF 업로드 → 텍스트 추출 ─────────────────────────────
+// ── PDF 업로드 → 직접 파싱 (text extraction 건너뜀) ──────
 async function handlePdfUpload(input) {
   const file = input.files[0];
   if (!file) return;
@@ -940,27 +940,32 @@ async function handlePdfUpload(input) {
   formData.append('file', file);
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 120_000); // 2분
+  const timeoutId = setTimeout(() => controller.abort(), 1_200_000); // 20분
 
   try {
-    const res = await fetch('/api/extract-pdf', { method: 'POST', body: formData, signal: controller.signal });
+    const res = await fetch('/api/parse-pdf', { method: 'POST', body: formData, signal: controller.signal });
     clearTimeout(timeoutId);
     if (!res.ok) {
       const err = await res.json();
-      throw new Error(err.detail || 'PDF 추출 실패');
+      throw new Error(err.detail || 'PDF 분석 실패');
     }
-    const data = await res.json();
-    document.getElementById('script-input').value = data.text;
-    const skipMsg = data.skipped_pages?.length
-      ? ` (${data.skipped_pages.length}페이지 추출 실패 skip)`
-      : '';
-    showToast(`PDF 추출 완료 (${data.total_pages}페이지, ${data.char_count.toLocaleString()}자${skipMsg}). 대본을 확인하고 분석을 시작하세요.`, 'success');
+    parsedScript = await res.json();
+    renderCharacters();
+    setStep(2);
+    showPhase('characters');
+    if (parsedScript.partial_failure) {
+      const { failed_chunks, total_chunks } = parsedScript.partial_failure;
+      showToast(`PDF 분석 완료 — ${parsedScript.characters.length}명 (일부 구간 실패: ${failed_chunks.length}/${total_chunks} 청크)`, 'warning');
+    } else {
+      showToast(`PDF 분석 완료! ${parsedScript.characters.length}명의 캐릭터를 발견했습니다.`, 'success');
+    }
   } catch (e) {
     clearTimeout(timeoutId);
     const msg = e.name === 'AbortError'
-      ? 'PDF 추출 시간이 초과됐습니다 (2분). 파일이 너무 크거나 페이지 수가 많습니다.'
+      ? 'PDF 분석 시간이 초과됐습니다 (20분). 대본을 짧게 나눠 시도해보세요.'
       : `PDF 오류: ${e.message}`;
     showToast(msg, 'error');
+    console.error('[handlePdfUpload]', e);
   } finally {
     status.classList.add('hidden');
   }
