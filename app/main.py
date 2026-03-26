@@ -4,6 +4,15 @@
 """
 
 import json
+import sys
+
+# Windows cp949 stdout/stderr 에서 em-dash(U+2014) 등 비-cp949 문자 출력 시
+# UnicodeEncodeError가 발생하는 문제를 방지한다.
+# errors='replace' → 인코딩 불가 문자는 '?'로 치환, 프로세스가 죽지 않음.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware

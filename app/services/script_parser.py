@@ -45,11 +45,19 @@ def parse_script_pdf(pdf_bytes: bytes, filename: str = "script.pdf", total_pages
         return cached
 
     pdf_b64 = base64.b64encode(pdf_bytes).decode()
+
+    # Responses API는 instructions/input 양쪽에 소문자 "json" 지시 필요
+    # PARSE_SCRIPT_SYSTEM은 text parse에서도 사용하므로 원본 유지 + prefix만 추가
+    instructions_with_json = "Output valid json only. No text outside json.\n\n" + PARSE_SCRIPT_SYSTEM
+    user_text = "이 대본을 분석해주세요. Output must be a single valid json object. No text outside json."
+
     print(f"[PDF-Direct] Responses API 호출 중... ({len(pdf_bytes):,}B, {total_pages}페이지)")
+    print(f"[PDF-Direct] instructions prefix: {instructions_with_json[:40]!r}")
+    print(f"[PDF-Direct] input_text: {user_text!r}")
     t = time.time()
     response = client.responses.create(
         model="gpt-4o",
-        instructions=PARSE_SCRIPT_SYSTEM,
+        instructions=instructions_with_json,
         input=[
             {
                 "role": "user",
@@ -59,7 +67,7 @@ def parse_script_pdf(pdf_bytes: bytes, filename: str = "script.pdf", total_pages
                         "filename": filename,
                         "file_data": f"data:application/pdf;base64,{pdf_b64}",
                     },
-                    {"type": "input_text", "text": "이 대본을 분석해주세요."},
+                    {"type": "input_text", "text": user_text},
                 ],
             }
         ],
@@ -73,7 +81,7 @@ def parse_script_pdf(pdf_bytes: bytes, filename: str = "script.pdf", total_pages
     try:
         result = json.loads(raw)
     except json.JSONDecodeError as e:
-        print(f"[PDF-Direct] JSONDecodeError — 응답 앞 300자: {raw[:300]!r}")
+        print(f"[PDF-Direct] JSONDecodeError: 응답 앞 300자: {raw[:300]!r}")
         raise
 
     alias_map = build_alias_map(result.get("characters") or [])
