@@ -943,7 +943,9 @@ async function handlePdfUpload(input) {
   const timeoutId = setTimeout(() => controller.abort(), 1_200_000); // 20분
 
   try {
+    console.time('[parsePdf] api');
     const res = await fetch('/api/parse-pdf', { method: 'POST', body: formData, signal: controller.signal });
+    console.timeEnd('[parsePdf] api');
     clearTimeout(timeoutId);
     if (!res.ok) {
       const err = await res.json();
@@ -984,12 +986,14 @@ async function parseScript() {
   const timeoutId = setTimeout(() => controller.abort(), 1_200_000); // 20분 (긴 대본 대응)
 
   try {
+    console.time('[parseScript] api');
     const res = await fetch('/api/parse-script', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ script }),
       signal: controller.signal,
     });
+    console.timeEnd('[parseScript] api');
     clearTimeout(timeoutId);
     if (!res.ok) {
       let detail = '파싱 실패';
