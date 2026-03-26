@@ -13,13 +13,15 @@ from app.core.config import client
 from app.prompts.templates import ENRICH_META_SYSTEM, PARSE_FAST_SYSTEM, PARSE_SCRIPT_SYSTEM  # PARSE_SCRIPT_SYSTEM: PDF direct path에서 사용
 
 # 단일 청크 최대 길이
-CHUNK_SIZE = 3_000
+# 4000자 기준 출력 ~5,400 tokens → MAX_TOKENS=6000 필요
+CHUNK_SIZE = 4_000
 
 # 이 길이 이하는 단일 호출 사용 (청크 오버헤드 불필요)
 CHUNK_THRESHOLD = 3_500
 
-# fast parse용 output token 상한 — actor fields 없으므로 4096으로 충분
-MAX_TOKENS = 4_096
+# fast parse용 output token 상한
+# 4000자 청크 → ~5,400 tokens; 3000자 청크도 ~4,100 → 기존 4096은 밀도 높은 대본에서 잘림 위험
+MAX_TOKENS = 6_000
 
 # 병렬 청크 처리 워커 수 — API rate limit 여유 있게 보수적으로 설정
 MAX_WORKERS = 4
@@ -255,13 +257,19 @@ def _parse_single(text: str) -> dict:
 
 
 def _parse_chunk_with_retry(chunk: str, idx: int, total: int) -> dict | None:
-    """단일 청크를 파싱한다. 실패 시 1회 재시도. None 반환 시 실패."""
+    """단일 청크를 파싱한다. 실패 시 1회 재시도. None 반환 시 실패.
+
+    JSONDecodeError는 같은 입력으로 재시도해도 동일한 결과 → 재시도 없이 즉시 실패.
+    """
     t = time.time()
     for attempt in range(2):
         try:
             result = _parse_single(chunk)
             print(f"[Parser] 청크 {idx+1}/{total} 완료 ({time.time()-t:.1f}s)")
             return result
+        except json.JSONDecodeError as e:
+            print(f"[Parser] 청크 {idx+1}/{total} JSON 오류 (재시도 없음): {e}")
+            return None
         except Exception as e:
             if attempt == 0:
                 print(f"[Parser] 청크 {idx+1}/{total} 실패 (재시도 중): {e}")
@@ -277,7 +285,8 @@ def _enrich_meta(merged: dict) -> dict:
     캐스트가 많을수록 relationships 쌍이 폭발적으로 늘어나므로,
     대사 빈도 기준 상위 MAX_ENRICH_CHARS명으로 제한한다.
     """
-    MAX_ENRICH_CHARS = 8  # 이 이상은 relationships 쌍이 너무 많아 token 초과 위험
+    # 4명: directed pairs 12쌍 → ~1,780 tokens (8명은 56쌍 → ~4,000 tokens → slow)
+    MAX_ENRICH_CHARS = 4
 
     chars = merged.get("characters") or []
     if not chars:
@@ -301,6 +310,10 @@ def _enrich_meta(merged: dict) -> dict:
     )
     prompt = f"캐릭터 목록:\n{chars_info}"
 
+    # 캐릭터 수에 비례한 max_tokens 산정: character_analysis(~135 tok/명) + relationships(~95 tok/쌍)
+    # directed pairs = n*(n-1) → 4명: 12쌍 → ~1,780 tokens; 2명: 2쌍 → ~780 tokens
+    max_enrich_tokens = min(3_000, max(1_200, len(chars) * 700))
+
     try:
         response = client.chat.completions.create(
             model="gpt-4o",
@@ -309,14 +322,14 @@ def _enrich_meta(merged: dict) -> dict:
                 {"role": "user",   "content": prompt},
             ],
             temperature=0.3,
-            max_tokens=8_192,  # 12명 이상 캐스트도 relationships가 잘리지 않게
+            max_tokens=max_enrich_tokens,
             response_format={"type": "json_object"},
         )
         raw = response.choices[0].message.content or "{}"
         enrich = json.loads(raw)
         merged["character_analysis"] = enrich.get("character_analysis") or {}
         merged["relationships"] = enrich.get("relationships") or {}
-        print(f"[Parser] Meta enrich 완료 - 캐릭터 {len(chars)}명")
+        print(f"[Parser] Meta enrich 완료 - 캐릭터 {len(chars)}명 (max_tokens={max_enrich_tokens})")
     except Exception as e:
         print(f"[Parser] Meta enrich 실패 (fallback 빈 dict): {e}")
         merged.setdefault("character_analysis", {})
