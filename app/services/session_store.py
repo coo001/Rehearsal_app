@@ -27,6 +27,8 @@ def save_session(data: dict) -> dict:
     _path(sid).write_text(
         json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
     )
+    line_count = len((data.get("parsed_script") or {}).get("lines") or [])
+    print(f"[Session] 저장 완료 {sid[:8]}... — lines={line_count}, audio={len(data.get('audio_map') or {})}")
     return data
 
 
@@ -36,7 +38,10 @@ def load_session(session_id: str) -> dict | None:
     if not p.exists():
         return None
     try:
-        return json.loads(p.read_text(encoding="utf-8"))
+        data = json.loads(p.read_text(encoding="utf-8"))
+        line_count = len((data.get("parsed_script") or {}).get("lines") or [])
+        print(f"[Session] 로드 완료 {session_id[:8]}... — lines={line_count}, audio={len(data.get('audio_map') or {})}")
+        return data
     except Exception as e:
         print(f"[Session] 로드 실패 {session_id}: {e}")
         return None

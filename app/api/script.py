@@ -11,7 +11,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from pypdf import PdfReader
 
 from app.schemas.requests import ParseScriptRequest
-from app.services.script_parser import parse_script, parse_script_pdf
+from app.services.script_parser import parse_script, parse_script_pdf, PDFTruncationError
 from app.utils.response import json_response
 
 router = APIRouter()
@@ -79,7 +79,10 @@ async def parse_script_endpoint(req: ParseScriptRequest):
 
 
 MAX_PDF_PAGES = 150  # 이 이상은 추출이 과도하게 느려질 수 있음
-PDF_DIRECT_MAX_PAGES = 50  # 이 이하: direct parse / 초과: text extraction + chunked parse
+PDF_DIRECT_MAX_PAGES = 40  # 이 이하: Responses API direct parse / 초과: text extraction + chunked parse
+# direct parse는 PDF를 시각적으로 직접 읽어 한국어 인코딩 문제 없음
+# max_output_tokens=65_536 기준 ~1,600줄 처리 가능 → 40페이지 이하 안전
+# pypdf text extraction은 한국어 극본에서 불완전한 경우가 많아 fallback으로만 사용
 
 
 @router.post("/parse-pdf")
@@ -120,7 +123,24 @@ async def parse_pdf_direct(file: UploadFile = File(...)):
             full_text = repair_pdf_text(full_text)
             data = parse_script(full_text)
         else:
-            data = parse_script_pdf(content, file.filename or "script.pdf", total_pages)
+            try:
+                data = parse_script_pdf(content, file.filename or "script.pdf", total_pages)
+            except PDFTruncationError as e:
+                # direct parse 결과 잘림 → text extraction + chunked parse fallback
+                print(f"[parse-pdf] {e}")
+                print(f"[parse-pdf] text extraction fallback 시도 중...")
+                pages_fb: list[str] = []
+                for i, page in enumerate(reader.pages):
+                    try:
+                        pages_fb.append(page.extract_text(extraction_mode="layout") or "")
+                    except Exception:
+                        pages_fb.append("")
+                full_text_fb = "\n\n".join(p.strip() for p in pages_fb if p.strip())
+                if not full_text_fb:
+                    raise HTTPException(422, "PDF direct parse가 잘렸고 텍스트 추출도 실패했습니다. 대본을 나눠 업로드해주세요.")
+                full_text_fb = _preprocess_pdf_text(full_text_fb)
+                full_text_fb = repair_pdf_text(full_text_fb)
+                data = parse_script(full_text_fb)
 
         return json_response(data)
     except HTTPException:

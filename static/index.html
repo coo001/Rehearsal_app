@@ -1743,7 +1743,7 @@ function navigate(dir) {
   if (currentAudio) { currentAudio.pause(); currentAudio = null; setAudioStatus(false, ''); }
 
   const newIdx = currentLineIndex + dir;
-  if (newIdx < 0 || newIdx > parsedScript.lines.length) return;
+  if (newIdx < 0 || newIdx >= parsedScript.lines.length) return;
   currentLineIndex = newIdx;
   updateDisplay();
 

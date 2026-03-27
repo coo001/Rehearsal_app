@@ -2,7 +2,7 @@
 
 import json
 
-from app.core.config import client, TTS_VOICES, VALID_VOICE_IDS
+from app.core.config import client, TTS_VOICES, VALID_VOICE_IDS, OPENAI_VOICE_ASSIGN_MODEL
 from app.prompts.templates import AUTO_ASSIGN_TEMPLATE
 
 
@@ -33,7 +33,7 @@ def auto_assign_voices(
         user_preferences_info = ""
 
     response = client.chat.completions.create(
-        model="gpt-4o",
+        model=OPENAI_VOICE_ASSIGN_MODEL,
         messages=[
             {
                 "role": "system",

@@ -19,6 +19,16 @@ TTS_PROVIDER = os.environ.get("TTS_PROVIDER", "openai")
 # ─── OpenAI 클라이언트 ──────────────────────────────────────────
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
+# ─── 단계별 GPT 모델 라우팅 ────────────────────────────────────
+# parse (text/chunk): 구조화만 — 빠르고 저렴한 모델
+OPENAI_PARSE_FAST_MODEL   = os.environ.get("OPENAI_PARSE_FAST_MODEL",   "gpt-5.4-mini")
+# parse (PDF direct, Responses API): vision + 대용량 컨텍스트
+OPENAI_PARSE_PDF_MODEL    = os.environ.get("OPENAI_PARSE_PDF_MODEL",    "gpt-5.4")
+# enrich_meta: 관계/심리 해석 — 품질 우선
+OPENAI_ENRICH_MODEL       = os.environ.get("OPENAI_ENRICH_MODEL",       "gpt-5.4")
+# voice assignment: 목소리 매칭 — 비교적 단순
+OPENAI_VOICE_ASSIGN_MODEL = os.environ.get("OPENAI_VOICE_ASSIGN_MODEL", "gpt-5.4-mini")
+
 # ─── ElevenLabs 설정 ───────────────────────────────────────────
 ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
 ELEVENLABS_MODEL_ID = os.environ.get("ELEVENLABS_MODEL_ID", "eleven_multilingual_v2")

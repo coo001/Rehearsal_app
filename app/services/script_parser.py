@@ -1,5 +1,10 @@
 """GPT-4o 대본 파싱 서비스."""
 
+
+class PDFTruncationError(RuntimeError):
+    """Responses API 응답이 max_output_tokens 한도로 잘렸을 때 발생."""
+    pass
+
 import base64
 import hashlib
 import io
@@ -9,7 +14,12 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from app.core.config import client
+from app.core.config import (
+    client,
+    OPENAI_PARSE_FAST_MODEL,
+    OPENAI_PARSE_PDF_MODEL,
+    OPENAI_ENRICH_MODEL,
+)
 from app.prompts.templates import ENRICH_META_SYSTEM, PARSE_FAST_SYSTEM, PARSE_SCRIPT_SYSTEM  # PARSE_SCRIPT_SYSTEM: PDF direct path에서 사용
 
 # 단일 청크 최대 길이
@@ -46,9 +56,11 @@ def parse_script_pdf(pdf_bytes: bytes, filename: str = "script.pdf", total_pages
 
     pdf_b64 = base64.b64encode(pdf_bytes).decode()
 
-    # Responses API는 instructions/input 양쪽에 소문자 "json" 지시 필요
-    # PARSE_SCRIPT_SYSTEM은 text parse에서도 사용하므로 원본 유지 + prefix만 추가
-    instructions_with_json = "Output valid json only. No text outside json.\n\n" + PARSE_SCRIPT_SYSTEM
+    # PARSE_FAST_SYSTEM: 라인당 ~50 tokens (actor analysis 없음)
+    # PARSE_SCRIPT_SYSTEM은 라인당 ~93 tokens + character_analysis/relationships ~4500 tokens 고정 오버헤드
+    # → 8192 max_output_tokens 기준 ~40줄만 출력됨 (20페이지 대본의 경우 ~1페이지에서 조기 종료)
+    # PARSE_FAST_SYSTEM + _enrich_meta() 분리로 텍스트 경로와 동일한 전략 적용
+    instructions_with_json = "Output valid json only. No text outside json.\n\n" + PARSE_FAST_SYSTEM
     user_text = "이 대본을 분석해주세요. Output must be a single valid json object. No text outside json."
 
     print(f"[PDF-Direct] Responses API 호출 중... ({len(pdf_bytes):,}B, {total_pages}페이지)")
@@ -56,7 +68,7 @@ def parse_script_pdf(pdf_bytes: bytes, filename: str = "script.pdf", total_pages
     print(f"[PDF-Direct] input_text: {user_text!r}")
     t = time.time()
     response = client.responses.create(
-        model="gpt-4o",
+        model=OPENAI_PARSE_PDF_MODEL,
         instructions=instructions_with_json,
         input=[
             {
@@ -73,9 +85,17 @@ def parse_script_pdf(pdf_bytes: bytes, filename: str = "script.pdf", total_pages
         ],
         text={"format": {"type": "json_object"}},
         temperature=0.3,
-        max_output_tokens=8_192,
+        max_output_tokens=65_536,
     )
-    print(f"[PDF-Direct] 완료 ({time.time()-t:.1f}s)")
+    usage = getattr(response, "usage", None)
+    out_tokens = getattr(usage, "output_tokens", "?") if usage else "?"
+    status = getattr(response, "status", None)
+    print(f"[PDF-Direct] 완료 ({time.time()-t:.1f}s) — status={status} output_tokens={out_tokens}")
+
+    if status == "incomplete":
+        raise PDFTruncationError(
+            f"PDF direct parse 잘림 (output_tokens={out_tokens}). text extraction fallback으로 재시도합니다."
+        )
 
     raw = response.output_text or "{}"
     try:
@@ -86,8 +106,12 @@ def parse_script_pdf(pdf_bytes: bytes, filename: str = "script.pdf", total_pages
 
     alias_map = build_alias_map(result.get("characters") or [])
     result = remap_result(result, alias_map)
-    result.setdefault("character_analysis", {})
-    result.setdefault("relationships", {})
+    print(f"[PDF-Direct] 파싱 완료 - {len(result.get('lines') or [])}줄")
+
+    t = time.time()
+    result = _enrich_meta(result)
+    print(f"[PDF-Direct] enrich_meta: {time.time()-t:.1f}s")
+
     _save_cache(cache_key, result)
     print(f"[PDF-Direct] 총 소요시간: {time.time()-t_total:.1f}s")
     return result
@@ -232,7 +256,7 @@ def _parse_single(text: str) -> dict:
     JSON 파싱 실패 시 LLM 원문 앞 300자를 로그에 남겨 원인 파악을 돕는다.
     """
     response = client.chat.completions.create(
-        model="gpt-4o",
+        model=OPENAI_PARSE_FAST_MODEL,
         messages=[
             {"role": "system", "content": PARSE_FAST_SYSTEM},
             {"role": "user",   "content": f"다음 대본을 분석해주세요:\n\n{text}"},
@@ -324,7 +348,7 @@ def _enrich_meta(merged: dict) -> dict:
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model=OPENAI_ENRICH_MODEL,
             messages=[
                 {"role": "system", "content": ENRICH_META_SYSTEM},
                 {"role": "user",   "content": prompt},
