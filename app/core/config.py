@@ -13,8 +13,8 @@ AUDIO_DIR.mkdir(exist_ok=True)
 STATIC_DIR = Path("static")
 
 # ─── TTS provider 설정 ─────────────────────────────────────────
-# .env 또는 환경변수에서 "openai" | "elevenlabs" 선택 (기본: openai)
-TTS_PROVIDER = os.environ.get("TTS_PROVIDER", "openai")
+# .env 또는 환경변수에서 "openai" | "elevenlabs" 선택 (기본: elevenlabs)
+TTS_PROVIDER = os.environ.get("TTS_PROVIDER", "elevenlabs")
 
 # ─── OpenAI 클라이언트 ──────────────────────────────────────────
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))

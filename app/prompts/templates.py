@@ -36,6 +36,15 @@ intensity 기준 (정수 1~5):
 tempo: "느리게" | "보통" | "빠르게"
 pause_after (ms): 일반 400~700 / 감정적 800~1500 / 극적 1500~3000 / 짧은 반응 300~500
 
+Korean theatrical script format (한국어 연극 대본):
+- Dialogue format: "화자명 대사내용" — speaker name at line start, single space, then speech. NO colon.
+  e.g. "강호 깨진 찻잔. 울리지 않는 자명종 시계..."
+  e.g. "지혜 탐정님, 도대체 무슨 일로..."
+- Direction signals: "화자명, 행동묘사" (comma after name = stage action), or lines with no speaker
+  e.g. "기태, 어딘가로 뛰쳐나간다." / "암전" / "무대 위 움직이는 소리."
+- Speaker names: short Korean names (1–5 chars). If "등장인물" section exists, extract from it.
+- When in doubt: short Korean name + single space at line start → classify as dialogue, not direction.
+
 Rules:
 - type = "dialogue" for lines, "direction" for stage directions (no analysis fields on direction)
 - characters: real dialogue speakers only, names exactly as in script

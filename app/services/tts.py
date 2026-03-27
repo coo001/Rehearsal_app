@@ -37,6 +37,23 @@ def _generate_openai(voice_id: str, text: str, instructions: str, audio_path: Pa
     tts_response.stream_to_file(str(audio_path))
 
 
+def _normalize_tts_text(text: str) -> str:
+    """TTS 텍스트 정규화 — 기계적 읽기를 유발하는 패턴 제거.
+
+    - 말줄임표(…/...) → 짧은 쉼표(,) 또는 제거 (자연 포즈 유도)
+    - 대시(—/--)  → 쉼표
+    - 느낌표 연속(!!!) → 단일 느낌표
+    - 괄호 지문 제거 (ex: (웃으며), (멈추고))
+    """
+    import re
+    text = re.sub(r'\(.*?\)', '', text)           # (지문) 제거
+    text = re.sub(r'\.{2,}|…', ',', text)         # ... / … → ,
+    text = re.sub(r'—|--', ',', text)             # — / -- → ,
+    text = re.sub(r'!{2,}', '!', text)            # !!! → !
+    text = re.sub(r'\s{2,}', ' ', text)           # 다중 공백 정리
+    return text.strip()
+
+
 def _generate_elevenlabs(
     voice_id: str,
     text: str,
@@ -49,7 +66,8 @@ def _generate_elevenlabs(
     intensity(1~5)를 voice_settings로 변환:
     - 1~2: stability 높음, style 낮음 (절제된 전달)
     - 3:   balanced
-    - 4~5: stability 낮음, style 높음 (표현력 극대화)
+    - 4~5: stability 낮음, style 높음 (표현력)
+    리허설 친화적 자연스러움을 위해 style exaggeration을 전반적으로 낮춤.
     """
     if not ELEVENLABS_API_KEY:
         raise RuntimeError("ELEVENLABS_API_KEY가 설정되지 않았습니다.")
@@ -58,12 +76,15 @@ def _generate_elevenlabs(
     from elevenlabs import VoiceSettings
 
     # intensity -> voice_settings 매핑
+    # style은 이전보다 전반적으로 낮춰 기계적 과장 억제
     if intensity <= 2:
-        stability, style = 0.65, 0.15
+        stability, style = 0.70, 0.08
     elif intensity == 3:
-        stability, style = 0.50, 0.35
+        stability, style = 0.55, 0.20
     else:
-        stability, style = 0.30, 0.60
+        stability, style = 0.38, 0.40
+
+    text = _normalize_tts_text(text)
 
     el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
     audio_iter = el_client.text_to_speech.convert(
@@ -73,9 +94,9 @@ def _generate_elevenlabs(
         output_format="mp3_44100_128",
         voice_settings=VoiceSettings(
             stability=stability,
-            similarity_boost=0.75,
+            similarity_boost=0.80,
             style=style,
-            use_speaker_boost=True,
+            use_speaker_boost=False,
         ),
     )
     audio_path.write_bytes(b"".join(audio_iter))

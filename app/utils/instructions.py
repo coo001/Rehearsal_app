@@ -48,6 +48,7 @@ def build_tts_instructions(
 
 
 def build_elevenlabs_prompt(
+    char_desc: str | None = None,
     beat_goal: str | None = None,
     subtext: str | None = None,
     tts_direction: str | None = None,
@@ -56,29 +57,26 @@ def build_elevenlabs_prompt(
 ) -> str:
     """ElevenLabs용 발화 지시 문자열.
 
-    설계 원칙:
-    - 앵커 1문장 고정: 발화 기준을 세운다
-    - 나열식 조각이 아닌 흐르는 짧은 문장으로 조립
-    - beat_goal: 지금 말하는 동기 (있으면 반드시 포함)
-    - subtext: 말 아래 압박 (있으면 포함)
-    - tts_direction: 물리적 전달 방식 (있으면 포함)
-    - emotion: intensity >= 3일 때만 포함 (기본 절제, 강할 때만 명시)
-    - tactics / char_desc: 생략 (EL voice가 캐릭터 태도를 담음)
+    구조: 앵커 → 캐릭터 태도 → 목적 → 서브텍스트 → 전달 방식 → (강한 감정만)
+    필드가 없으면 해당 줄 생략. intensity < 3이면 감정 줄 생략.
     """
-    parts = ["상대를 보며 직접 말하듯. 읽지 말고, 생각이 말이 되게."]
+    parts = ["상대에게 직접 말하듯. 읽지 말고, 생각이 말이 되게."]
+
+    if char_desc:
+        parts.append(f"이 인물: {char_desc}")
 
     if beat_goal:
-        parts.append(f"지금 원하는 것: {beat_goal}")
+        parts.append(f"원하는 것: {beat_goal}")
 
     if subtext:
         parts.append(f"말 아래: {subtext}")
+
+    if tts_direction:
+        parts.append(tts_direction)
 
     # 강한 감정만 명시 (intensity 3 이상)
     if emotion_label and intensity is not None and intensity >= 3:
         level = ["", "", "드러나는", "강한", "폭발적인"][max(0, min(4, intensity - 1))]
         parts.append(f"{level} {emotion_label}.")
 
-    if tts_direction:
-        parts.append(tts_direction)
-
-    return " ".join(parts)
+    return "\n".join(parts)

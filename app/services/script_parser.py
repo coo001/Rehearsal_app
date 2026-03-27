@@ -39,6 +39,10 @@ MAX_WORKERS = 4
 # 파싱 결과 캐시 디렉토리
 CACHE_DIR = Path("data/parse_cache")
 
+# 프롬프트 변경 시 자동 cache 무효화용 버전 prefix
+# PARSE_FAST_SYSTEM 내용이 바뀌면 해시가 달라져 기존 캐시 전체 miss
+_PROMPT_HASH = hashlib.md5(PARSE_FAST_SYSTEM.encode()).hexdigest()[:8]
+
 
 def parse_script_pdf(pdf_bytes: bytes, filename: str = "script.pdf", total_pages: int = 0) -> dict:
     """PDF를 base64 인라인으로 Responses API에 직접 전달해 파싱한다.
@@ -48,7 +52,8 @@ def parse_script_pdf(pdf_bytes: bytes, filename: str = "script.pdf", total_pages
     Files API 업로드/삭제 없이 PDF 바이트를 직접 모델에 전달한다.
     """
     t_total = time.time()
-    cache_key = hashlib.md5(pdf_bytes).hexdigest()
+    pdf_hash = hashlib.md5(pdf_bytes).hexdigest()
+    cache_key = hashlib.md5(f"{_PROMPT_HASH}:{pdf_hash}".encode()).hexdigest()
     cached = _load_cache(cache_key)
     if cached is not None:
         print(f"[PDF-Direct] 캐시 히트: {cache_key[:8]}... ({total_pages}페이지)")
@@ -155,11 +160,11 @@ def parse_script(script_text: str) -> dict:
     total_chars = len(script_text)
     print(f"[Parser] normalize: {time.time()-t:.2f}s ({total_chars}자)")
 
-    # 캐시 확인
-    cache_key = hashlib.md5(script_text.encode()).hexdigest()
+    # 캐시 확인 — prompt hash prefix로 프롬프트 변경 시 자동 무효화
+    cache_key = hashlib.md5(f"{_PROMPT_HASH}:{script_text}".encode()).hexdigest()
     cached = _load_cache(cache_key)
     if cached is not None:
-        print(f"[Parser] 캐시 히트: {cache_key[:8]}... ({total_chars}자)")
+        print(f"[Parser] 캐시 히트: {cache_key[:8]}... ({total_chars}자, prompt={_PROMPT_HASH})")
         return cached
 
     if total_chars <= CHUNK_THRESHOLD:
@@ -185,25 +190,38 @@ def parse_script(script_text: str) -> dict:
         f"{len(chunks)}개 청크 (크기: {[len(c) for c in chunks]})"
     )
 
-    # 병렬 청크 처리
+    # 청크 처리: 청크 0 선파싱 → 캐릭터 추출 → 나머지 병렬
     t = time.time()
     chunk_results: dict[int, dict] = {}
     failed_chunks: list[int] = []
 
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        future_to_idx = {
-            executor.submit(_parse_chunk_with_retry, chunk, i, len(chunks)): i
-            for i, chunk in enumerate(chunks)
-        }
-        for future in as_completed(future_to_idx):
-            i = future_to_idx[future]
-            result = future.result()  # _parse_chunk_with_retry는 None 또는 dict 반환
-            if result is not None:
-                chunk_results[i] = result
-            else:
-                failed_chunks.append(i + 1)
+    # Step 1: 청크 0 선파싱 (등장인물 섹션 포함 가능성 높음)
+    first_result = _parse_chunk_with_retry(chunks[0], 0, len(chunks))
+    if first_result is not None:
+        chunk_results[0] = first_result
+        initial_chars = first_result.get("characters") or []
+    else:
+        failed_chunks.append(1)
+        initial_chars = []
+    if initial_chars:
+        print(f"[Parser] 초기 캐릭터 추출: {initial_chars}")
 
-    print(f"[Parser] chunk parse (병렬 {MAX_WORKERS}workers): {time.time()-t:.1f}s")
+    # Step 2: 나머지 청크 병렬 파싱 (캐릭터 컨텍스트 전달)
+    if len(chunks) > 1:
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            future_to_idx = {
+                executor.submit(_parse_chunk_with_retry, chunk, i, len(chunks), initial_chars): i
+                for i, chunk in enumerate(chunks[1:], 1)
+            }
+            for future in as_completed(future_to_idx):
+                i = future_to_idx[future]
+                result = future.result()
+                if result is not None:
+                    chunk_results[i] = result
+                else:
+                    failed_chunks.append(i + 1)
+
+    print(f"[Parser] chunk parse (청크0 직렬 + 나머지 {MAX_WORKERS}workers 병렬): {time.time()-t:.1f}s")
 
     # 인덱스 순 정렬 후 병합
     results = [chunk_results[i] for i in sorted(chunk_results.keys())]
@@ -249,17 +267,28 @@ def parse_script(script_text: str) -> dict:
 
 # ── 내부 헬퍼 ──────────────────────────────────────────────
 
-def _parse_single(text: str) -> dict:
+def _parse_single(text: str, known_characters: list[str] | None = None) -> dict:
     """단일 텍스트를 GPT-4o 1회 호출로 구조적 파싱 (actor analysis 없음).
 
+    known_characters: 앞 청크에서 추출한 캐릭터 이름 목록.
+      전달 시 "이 이름들로 시작하는 줄을 dialogue로 처리하세요" 지시를 user 메시지 앞에 추가.
+      한국어 '화자명 + 공백 + 대사' 형식 대본에서 후속 청크 오분류 방지.
     finish_reason='length': 출력 토큰 한도 초과 → JSON 잘림 → JSONDecodeError 가능성 높음.
     JSON 파싱 실패 시 LLM 원문 앞 300자를 로그에 남겨 원인 파악을 돕는다.
     """
+    user_content = f"다음 대본을 분석해주세요:\n\n{text}"
+    if known_characters:
+        chars_str = ", ".join(known_characters)
+        user_content = (
+            f"등장인물 (이 이름으로 시작하는 줄은 반드시 dialogue로 분류하세요): {chars_str}\n\n"
+            + user_content
+        )
+
     response = client.chat.completions.create(
         model=OPENAI_PARSE_FAST_MODEL,
         messages=[
             {"role": "system", "content": PARSE_FAST_SYSTEM},
-            {"role": "user",   "content": f"다음 대본을 분석해주세요:\n\n{text}"},
+            {"role": "user",   "content": user_content},
         ],
         temperature=0.3,
         max_tokens=MAX_TOKENS,
@@ -288,16 +317,19 @@ def _parse_single(text: str) -> dict:
 
 
 
-def _parse_chunk_with_retry(chunk: str, idx: int, total: int) -> dict | None:
+def _parse_chunk_with_retry(chunk: str, idx: int, total: int, known_characters: list[str] | None = None) -> dict | None:
     """단일 청크를 파싱한다. 실패 시 1회 재시도. None 반환 시 실패.
 
+    known_characters: 앞 청크에서 추출한 캐릭터 이름. _parse_single()로 전달.
     JSONDecodeError는 같은 입력으로 재시도해도 동일한 결과 → 재시도 없이 즉시 실패.
     """
     t = time.time()
     for attempt in range(2):
         try:
-            result = _parse_single(chunk)
-            print(f"[Parser] 청크 {idx+1}/{total} 완료 ({time.time()-t:.1f}s)")
+            result = _parse_single(chunk, known_characters=known_characters)
+            n_lines = len(result.get("lines") or [])
+            n_chars = len(result.get("characters") or [])
+            print(f"[Parser] 청크 {idx+1}/{total} 완료 ({time.time()-t:.1f}s) — lines={n_lines}, chars={n_chars}")
             return result
         except json.JSONDecodeError as e:
             print(f"[Parser] 청크 {idx+1}/{total} JSON 오류 (재시도 없음): {e}")

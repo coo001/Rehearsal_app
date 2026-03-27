@@ -44,6 +44,7 @@ async def generate_rehearsal(req: GenerateRehearsalRequest):
         try:
             if TTS_PROVIDER == "elevenlabs":
                 instructions = build_elevenlabs_prompt(
+                    char_desc=req.character_descriptions.get(char),
                     beat_goal=line.get("beat_goal"),
                     subtext=line.get("subtext"),
                     tts_direction=line.get("tts_direction"),
@@ -62,8 +63,14 @@ async def generate_rehearsal(req: GenerateRehearsalRequest):
                     tts_direction=line.get("tts_direction"),
                     emotion=line.get("emotion"),
                 )
-            print(f"[TTS] idx={idx} char={char!r} voice={voice_id} intensity={line.get('intensity')} provider={TTS_PROVIDER}")
-            print(f"  >> {instructions!r}")
+            print(
+                f"[TTS] idx={idx} char={char!r} voice={voice_id} intensity={line.get('intensity')} provider={TTS_PROVIDER}"
+                f"\n  char_desc  : {(req.character_descriptions.get(char) or '')[:60]}"
+                f"\n  beat_goal  : {line.get('beat_goal') or '-'}"
+                f"\n  subtext    : {line.get('subtext') or '-'}"
+                f"\n  direction  : {line.get('tts_direction') or '-'}"
+                f"\n  prompt     : {instructions!r}"
+            )
             generate_tts_file(voice_id, line["text"], instructions, audio_path, intensity=line.get("intensity", 2))
             audio_map[str(idx)] = audio_url(audio_path)
         except Exception as e:
@@ -86,6 +93,7 @@ async def generate_single_line(req: SingleLineRequest):
         try:
             if TTS_PROVIDER == "elevenlabs":
                 instructions = build_elevenlabs_prompt(
+                    char_desc=req.character_description,
                     beat_goal=req.beat_goal,
                     subtext=req.subtext,
                     tts_direction=req.tts_direction,
