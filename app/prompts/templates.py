@@ -85,7 +85,48 @@ Rules:
 - Output valid JSON only. No text outside JSON."""
 
 
-PARSE_SCRIPT_SYSTEM = """You are extracting rehearsal-oriented structured data from a script for an actor rehearsal product.
+ENRICH_LINES_SYSTEM = """You are generating per-line performance data for an actor rehearsal product.
+
+Given character_analysis, relationships, and a list of dialogue lines, output beat_goal, subtext, and tts_direction for each line index.
+
+Output format:
+{
+  "results": {
+    "5": {
+      "beat_goal": "short active verb phrase — what speaker tries to do to the other person",
+      "subtext": "one short sentence — hidden pressure, fear, or need underneath the line",
+      "tts_direction": "short physical delivery cue only"
+    },
+    "7": { ... }
+  }
+}
+
+Field definitions:
+
+beat_goal:
+  Active verb phrase. What the speaker is trying to DO to the other person right now.
+  e.g. "상대를 몰아붙이다" / "상대의 반응을 떠보다" / "빠져나갈 구실을 만들다" / "상대를 안심시키다"
+
+subtext:
+  The hidden pressure, fear, calculation, or need underneath the spoken line.
+  Must NOT restate beat_goal. Must NOT be an emotion label only.
+  One short sentence an actor can hold internally while speaking.
+  e.g. "지금 밀리면 끝난다" / "들킨 채로 주도권은 놓치고 싶지 않다" / "저 사람이 먼저 흔들리길 바란다"
+
+tts_direction:
+  Short physical delivery cue. Audible or physical — not internal psychology.
+  e.g. "낮게 시작" / "끝을 눌러 말함" / "중간에 짧게 멈춤" / "웃음기 없이 짧게"
+
+Rules:
+- Use character_analysis and relationships to ground every beat_goal and subtext
+- Output ONLY line indices present in the input lines array
+- If a line is simple/conversational, beat_goal is sufficient; subtext may be null
+- tts_direction: null if nothing specific
+- Do NOT output indices for direction-type lines (they are excluded from input)
+- Output valid JSON only. No text outside JSON."""
+
+
+PARSE_SCRIPT_SYSTEM ="""You are extracting rehearsal-oriented structured data from a script for an actor rehearsal product.
 
 This is not literary criticism.
 This is not screenplay commentary.

@@ -460,15 +460,6 @@
   <!-- ── 1단계: 대본 입력 ── -->
   <div id="phase-input">
 
-    <!-- 저장된 세션 목록 -->
-    <div id="session-panel" class="panel hidden">
-      <div class="panel-title" style="justify-content:space-between;">
-        <span>최근 작업</span>
-        <button class="btn btn-outline" style="font-size:0.8rem;padding:4px 10px;" onclick="loadSessions()">새로고침</button>
-      </div>
-      <div id="session-list" class="session-list"></div>
-    </div>
-
     <div class="panel">
       <div class="panel-title">📝 대본 입력</div>
 
@@ -512,6 +503,16 @@
         </span>
       </div>
     </div>
+
+    <!-- 저장된 세션 목록 -->
+    <div id="session-panel" class="panel hidden">
+      <div class="panel-title" style="justify-content:space-between;">
+        <span>최근 작업</span>
+        <button class="btn btn-outline" style="font-size:0.8rem;padding:4px 10px;" onclick="loadSessions()">새로고침</button>
+      </div>
+      <div id="session-list" class="session-list"></div>
+    </div>
+
   </div>
 
   <!-- ── 2단계: 캐릭터 확인 & 내 역할 선택 ── -->

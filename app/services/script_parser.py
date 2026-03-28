@@ -20,7 +20,7 @@ from app.core.config import (
     OPENAI_PARSE_PDF_MODEL,
     OPENAI_ENRICH_MODEL,
 )
-from app.prompts.templates import ENRICH_META_SYSTEM, PARSE_FAST_SYSTEM, PARSE_SCRIPT_SYSTEM  # PARSE_SCRIPT_SYSTEM: PDF direct path에서 사용
+from app.prompts.templates import ENRICH_LINES_SYSTEM, ENRICH_META_SYSTEM, PARSE_FAST_SYSTEM, PARSE_SCRIPT_SYSTEM  # PARSE_SCRIPT_SYSTEM: PDF direct path에서 사용
 
 # 단일 청크 최대 길이
 # 4000자 기준 출력 ~5,400 tokens → MAX_TOKENS=6000 필요
@@ -39,9 +39,13 @@ MAX_WORKERS = 4
 # 파싱 결과 캐시 디렉토리
 CACHE_DIR = Path("data/parse_cache")
 
-# 프롬프트 변경 시 자동 cache 무효화용 버전 prefix
-# PARSE_FAST_SYSTEM 내용이 바뀌면 해시가 달라져 기존 캐시 전체 miss
-_PROMPT_HASH = hashlib.md5(PARSE_FAST_SYSTEM.encode()).hexdigest()[:8]
+# 파싱/enrichment 관련 모든 프롬프트 변경 시 자동 cache 무효화
+_COMBINED_PROMPTS = PARSE_FAST_SYSTEM + ENRICH_META_SYSTEM + ENRICH_LINES_SYSTEM
+_PROMPT_HASH = hashlib.md5(_COMBINED_PROMPTS.encode()).hexdigest()[:8]
+
+# 라인 enrichment 배치 크기 (beat_goal/subtext/tts_direction)
+ENRICH_LINES_BATCH_SIZE = 30
+ENRICH_LINES_MAX_TOKENS = 2_500
 
 
 def parse_script_pdf(pdf_bytes: bytes, filename: str = "script.pdf", total_pages: int = 0) -> dict:
@@ -116,6 +120,9 @@ def parse_script_pdf(pdf_bytes: bytes, filename: str = "script.pdf", total_pages
     t = time.time()
     result = _enrich_meta(result)
     print(f"[PDF-Direct] enrich_meta: {time.time()-t:.1f}s")
+    t = time.time()
+    result = _enrich_lines(result)
+    print(f"[PDF-Direct] enrich_lines: {time.time()-t:.1f}s")
 
     _save_cache(cache_key, result)
     print(f"[PDF-Direct] 총 소요시간: {time.time()-t_total:.1f}s")
@@ -179,6 +186,9 @@ def parse_script(script_text: str) -> dict:
         t = time.time()
         result = _enrich_meta(result)
         print(f"[Parser] single enrich_meta: {time.time()-t:.1f}s")
+        t = time.time()
+        result = _enrich_lines(result)
+        print(f"[Parser] single enrich_lines: {time.time()-t:.1f}s")
         _save_cache(cache_key, result)
         print(f"[Parser] 총 소요시간: {time.time()-t_total:.1f}s")
         return result
@@ -259,6 +269,9 @@ def parse_script(script_text: str) -> dict:
     t = time.time()
     merged = _enrich_meta(merged)
     print(f"[Parser] enrich_meta: {time.time()-t:.1f}s")
+    t = time.time()
+    merged = _enrich_lines(merged)
+    print(f"[Parser] enrich_lines: {time.time()-t:.1f}s")
 
     _save_cache(cache_key, merged)
     print(f"[Parser] 총 소요시간: {time.time()-t_total:.1f}s")
@@ -399,6 +412,90 @@ def _enrich_meta(merged: dict) -> dict:
         merged.setdefault("character_analysis", {})
         merged.setdefault("relationships", {})
 
+    return merged
+
+
+def _enrich_lines(merged: dict) -> dict:
+    """대화 라인에 beat_goal, subtext, tts_direction을 배치 병렬로 추가.
+
+    character_analysis + relationships + 라인 배치를 입력으로 받아
+    per-line 퍼포먼스 데이터를 생성하고 원본 lines에 병합한다.
+    실패한 배치는 건너뜀 — 리허설 범위는 항상 유지.
+    """
+    lines = merged.get("lines") or []
+    char_analysis = merged.get("character_analysis") or {}
+    relationships = merged.get("relationships") or {}
+
+    # dialogue 라인 인덱스만 추출
+    dialogue_indices = [i for i, line in enumerate(lines) if line.get("type") == "dialogue"]
+    if not dialogue_indices:
+        return merged
+
+    # character_analysis + relationships 컨텍스트 (배치마다 공유)
+    context = json.dumps(
+        {"character_analysis": char_analysis, "relationships": relationships},
+        ensure_ascii=False,
+    )
+
+    # 배치 분할
+    batches = [
+        dialogue_indices[i: i + ENRICH_LINES_BATCH_SIZE]
+        for i in range(0, len(dialogue_indices), ENRICH_LINES_BATCH_SIZE)
+    ]
+
+    def enrich_batch(batch_indices: list[int]) -> dict[int, dict]:
+        batch_lines = [
+            {
+                "idx": i,
+                "char": lines[i].get("character"),
+                "text": lines[i].get("text"),
+                "emotion_label": lines[i].get("emotion_label"),
+                "intensity": lines[i].get("intensity", 2),
+            }
+            for i in batch_indices
+        ]
+        user_content = context + "\n\nLines:\n" + json.dumps(batch_lines, ensure_ascii=False)
+        try:
+            response = client.chat.completions.create(
+                model=OPENAI_ENRICH_MODEL,
+                messages=[
+                    {"role": "system", "content": ENRICH_LINES_SYSTEM},
+                    {"role": "user",   "content": user_content},
+                ],
+                temperature=0.3,
+                max_tokens=ENRICH_LINES_MAX_TOKENS,
+                response_format={"type": "json_object"},
+            )
+            raw = response.choices[0].message.content or "{}"
+            result = json.loads(raw)
+            return {int(k): v for k, v in (result.get("results") or {}).items()}
+        except Exception as e:
+            print(f"[Parser] enrich_lines 배치 실패 (fallback): {e}")
+            return {}
+
+    t = time.time()
+    all_results: dict[int, dict] = {}
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = {executor.submit(enrich_batch, batch): batch for batch in batches}
+        for future in as_completed(futures):
+            all_results.update(future.result())
+
+    # 결과를 원본 lines에 병합 (기존 값 덮어쓰지 않음)
+    enriched = 0
+    for idx, perf in all_results.items():
+        if idx < len(lines):
+            for field in ("beat_goal", "subtext", "tts_direction"):
+                val = perf.get(field)
+                if val and not lines[idx].get(field):
+                    lines[idx][field] = val
+            enriched += 1
+
+    merged["lines"] = lines
+    n_batches = len(batches)
+    print(
+        f"[Parser] enrich_lines: {time.time()-t:.1f}s — "
+        f"{enriched}/{len(dialogue_indices)}줄 enriched ({n_batches}배치)"
+    )
     return merged
 
 
