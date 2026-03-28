@@ -859,6 +859,12 @@ async function restoreSession(sessionId) {
     audioMap         = data.audio_map || {};
     userCharacter    = data.user_character || null;
 
+    const restoredLineCount = parsedScript?.lines?.length || 0;
+    console.log(`[Session] 복원 완료 — lines=${restoredLineCount}, audio=${Object.keys(audioMap).length}`);
+    if (restoredLineCount < 10) {
+      console.warn('[Session] 복원된 대본이 너무 짧습니다. 대본을 다시 분석해 보세요.');
+    }
+
     // script textarea 복원
     if (data.script_text) {
       document.getElementById('script-input').value = data.script_text;
@@ -869,7 +875,10 @@ async function restoreSession(sessionId) {
     setStep(5);
     showPhase('rehearsal');
     startRehearsal();
-    showToast(`"${data.title || '세션'}" 불러오기 완료`, 'success');
+    const restoreMsg = restoredLineCount < 10
+      ? `"${data.title || '세션'}" 복원 완료 (경고: 대사 ${restoredLineCount}줄만 있음 — 재분석 권장)`
+      : `"${data.title || '세션'}" 불러오기 완료`;
+    showToast(restoreMsg, restoredLineCount < 10 ? 'warning' : 'success');
   } catch(e) {
     showToast('세션 복원 중 오류가 발생했습니다.', 'error');
     console.error('[Session] 복원 실패', e);
@@ -953,10 +962,15 @@ async function handlePdfUpload(input) {
       throw new Error(err.detail || 'PDF 분석 실패');
     }
     parsedScript = await res.json();
+    const pdfLineCount = parsedScript.lines?.length || 0;
+    console.log(`[Script] PDF 분석 완료 — lines=${pdfLineCount}, chars=${parsedScript.characters?.length || 0}`);
+    if (pdfLineCount < 10) console.warn('[Script] 경고: 분석된 라인이 너무 적습니다. 서버 로그를 확인하세요.');
     renderCharacters();
     setStep(2);
     showPhase('characters');
-    if (parsedScript.partial_failure) {
+    if (pdfLineCount < 10) {
+      showToast(`경고: 대사가 ${pdfLineCount}줄만 추출됐습니다. 파싱을 다시 시도해보세요.`, 'warning');
+    } else if (parsedScript.partial_failure) {
       const { failed_chunks, total_chunks } = parsedScript.partial_failure;
       showToast(`PDF 분석 완료 — ${parsedScript.characters.length}명 (일부 구간 실패: ${failed_chunks.length}/${total_chunks} 청크)`, 'warning');
     } else {
@@ -1002,10 +1016,15 @@ async function parseScript() {
       throw new Error(detail);
     }
     parsedScript = await res.json();
+    const textLineCount = parsedScript.lines?.length || 0;
+    console.log(`[Script] 텍스트 분석 완료 — lines=${textLineCount}, chars=${parsedScript.characters?.length || 0}`);
+    if (textLineCount < 10) console.warn('[Script] 경고: 분석된 라인이 너무 적습니다. 서버 로그를 확인하세요.');
     renderCharacters();
     setStep(2);
     showPhase('characters');
-    if (parsedScript.partial_failure) {
+    if (textLineCount < 10) {
+      showToast(`경고: 대사가 ${textLineCount}줄만 추출됐습니다. 파싱을 다시 시도해보세요.`, 'warning');
+    } else if (parsedScript.partial_failure) {
       const { failed_chunks, total_chunks } = parsedScript.partial_failure;
       showToast(`${parsedScript.characters.length}명 분석 완료 (일부 구간 실패: ${failed_chunks.length}/${total_chunks} 청크)`, 'warning');
     } else {
@@ -1653,8 +1672,13 @@ async function playCurrentLine() {
   // AI 대사 재생
   const audioUrl = audioMap[currentLineIndex];
   if (!audioUrl) {
-    if (autoAdvance) scheduleAutoAdvance(500, '');
-    else navigate(1);
+    if (autoAdvance) {
+      const delay = Math.min(1500, Math.max(0, line.next_cue_delay_ms ?? 500));
+      console.log(`[Timing] idx=${currentLineIndex} no-audio, advance in ${delay}ms`);
+      scheduleAutoAdvance(delay, '');
+    } else {
+      navigate(1);
+    }
     return;
   }
 
@@ -1757,8 +1781,10 @@ function navigate(dir) {
       // 내 차례 → 마이크 시작
       setTimeout(() => startListening(), 400);
     } else {
-      // AI 대사 — 잠깐 후 자동 재생
-      setTimeout(() => playCurrentLine(), 300);
+      // AI 대사 — per-line next_cue_delay_ms 사용 (없으면 300ms 기본값)
+      const delay = Math.min(1500, Math.max(0, next.next_cue_delay_ms ?? 300));
+      console.log(`[Timing] idx=${newIdx} char='${next.character}' next_cue_delay=${delay}ms`);
+      setTimeout(() => playCurrentLine(), delay);
     }
   }
 }

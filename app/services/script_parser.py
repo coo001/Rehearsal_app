@@ -36,6 +36,12 @@ MAX_TOKENS = 6_000
 # 병렬 청크 처리 워커 수 — API rate limit 여유 있게 보수적으로 설정
 MAX_WORKERS = 4
 
+# PDF direct parse 결과 sanity check: 이 값 미만이면 parse 불완전으로 판단 → fallback
+# 연극 대본 기준 최소 2줄/페이지는 매우 보수적 하한 (false positive 극소화)
+# 5페이지 이상 PDF에만 적용 (짧은 연습 스크립트 false positive 방지)
+MIN_LINES_PER_PAGE = 2
+MIN_PAGES_FOR_LINE_CHECK = 5
+
 # 파싱 결과 캐시 디렉토리
 CACHE_DIR = Path("data/parse_cache")
 
@@ -106,23 +112,44 @@ def parse_script_pdf(pdf_bytes: bytes, filename: str = "script.pdf", total_pages
             f"PDF direct parse 잘림 (output_tokens={out_tokens}). text extraction fallback으로 재시도합니다."
         )
 
-    raw = response.output_text or "{}"
+    raw = _strip_json_fences(response.output_text or "{}")
     try:
         result = json.loads(raw)
     except json.JSONDecodeError as e:
-        print(f"[PDF-Direct] JSONDecodeError: 응답 앞 300자: {raw[:300]!r}")
-        raise
+        print(
+            f"[PDF-Direct] JSON 파싱 실패 (len={len(raw)}): {e}\n"
+            f"[PDF-Direct] 원문 앞 300자: {raw[:300]!r}\n"
+            f"[PDF-Direct] 원문 뒤 200자: {raw[-200:]!r}"
+        )
+        raise PDFTruncationError(
+            f"PDF direct parse JSON 오류: {e}. text extraction fallback으로 전환합니다."
+        )
+
+    n_lines = len(result.get("lines") or [])
+    print(f"[PDF-Direct] 파싱 완료 — lines={n_lines}, pages={total_pages}")
+
+    # Sanity check: 페이지 수 대비 라인 수가 지나치게 적으면 premature stop 판단 → fallback
+    if total_pages >= MIN_PAGES_FOR_LINE_CHECK:
+        min_expected = total_pages * MIN_LINES_PER_PAGE
+        if n_lines < min_expected:
+            print(
+                f"[PDF-Direct] 라인 수 부족 ({n_lines}줄 < {total_pages}p × {MIN_LINES_PER_PAGE}) "
+                f"— 모델이 일찍 종료된 것으로 판단, text fallback으로 전환"
+            )
+            raise PDFTruncationError(
+                f"PDF direct parse 라인 수 부족 ({n_lines}줄 / {total_pages}페이지). "
+                f"text extraction fallback으로 전환합니다."
+            )
 
     alias_map = build_alias_map(result.get("characters") or [])
     result = remap_result(result, alias_map)
-    print(f"[PDF-Direct] 파싱 완료 - {len(result.get('lines') or [])}줄")
 
     t = time.time()
     result = _enrich_meta(result)
-    print(f"[PDF-Direct] enrich_meta: {time.time()-t:.1f}s")
+    print(f"[PDF-Direct] enrich_meta: {time.time()-t:.1f}s — lines={len(result.get('lines') or [])}")
     t = time.time()
     result = _enrich_lines(result)
-    print(f"[PDF-Direct] enrich_lines: {time.time()-t:.1f}s")
+    print(f"[PDF-Direct] enrich_lines: {time.time()-t:.1f}s — lines={len(result.get('lines') or [])}")
 
     _save_cache(cache_key, result)
     print(f"[PDF-Direct] 총 소요시간: {time.time()-t_total:.1f}s")
@@ -185,10 +212,10 @@ def parse_script(script_text: str) -> dict:
         result = remap_result(result, alias_map)
         t = time.time()
         result = _enrich_meta(result)
-        print(f"[Parser] single enrich_meta: {time.time()-t:.1f}s")
+        print(f"[Parser] single enrich_meta: {time.time()-t:.1f}s — lines={len(result.get('lines') or [])}")
         t = time.time()
         result = _enrich_lines(result)
-        print(f"[Parser] single enrich_lines: {time.time()-t:.1f}s")
+        print(f"[Parser] single enrich_lines: {time.time()-t:.1f}s — lines={len(result.get('lines') or [])}")
         _save_cache(cache_key, result)
         print(f"[Parser] 총 소요시간: {time.time()-t_total:.1f}s")
         return result
@@ -268,10 +295,10 @@ def parse_script(script_text: str) -> dict:
     # 단일 meta enrich (character_analysis + relationships)
     t = time.time()
     merged = _enrich_meta(merged)
-    print(f"[Parser] enrich_meta: {time.time()-t:.1f}s")
+    print(f"[Parser] enrich_meta: {time.time()-t:.1f}s — lines={len(merged.get('lines') or [])}")
     t = time.time()
     merged = _enrich_lines(merged)
-    print(f"[Parser] enrich_lines: {time.time()-t:.1f}s")
+    print(f"[Parser] enrich_lines: {time.time()-t:.1f}s — lines={len(merged.get('lines') or [])}")
 
     _save_cache(cache_key, merged)
     print(f"[Parser] 총 소요시간: {time.time()-t_total:.1f}s")
@@ -497,6 +524,23 @@ def _enrich_lines(merged: dict) -> dict:
         f"{enriched}/{len(dialogue_indices)}줄 enriched ({n_batches}배치)"
     )
     return merged
+
+
+def _strip_json_fences(raw: str) -> str:
+    """LLM 응답에서 markdown JSON fence와 선행 텍스트를 제거한다.
+
+    - ```json ... ``` 또는 ``` ... ``` 형태 제거
+    - { 이전에 붙은 비-JSON 주석 제거
+    """
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = re.sub(r'^```(?:json)?\s*', '', raw)
+        raw = re.sub(r'\s*```\s*$', '', raw)
+        raw = raw.strip()
+    idx = raw.find('{')
+    if idx > 0:
+        raw = raw[idx:]
+    return raw
 
 
 def _load_cache(key: str) -> dict | None:

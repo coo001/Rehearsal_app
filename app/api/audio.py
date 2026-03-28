@@ -24,6 +24,10 @@ async def generate_rehearsal(req: GenerateRehearsalRequest):
     session_id = req.session_id or str(uuid.uuid4())
     audio_map: dict = {}
 
+    total_lines = len(req.lines)
+    dialogue_lines = sum(1 for l in req.lines if l.get("type") == "dialogue" and l.get("character") != req.user_character)
+    print(f"[Gen] generate-rehearsal 시작 — total_lines={total_lines}, ai_dialogue={dialogue_lines}, session={session_id[:8]}")
+
     for idx, line in enumerate(req.lines):
         if line.get("type") != "dialogue":
             continue

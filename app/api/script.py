@@ -126,9 +126,9 @@ async def parse_pdf_direct(file: UploadFile = File(...)):
             try:
                 data = parse_script_pdf(content, file.filename or "script.pdf", total_pages)
             except PDFTruncationError as e:
-                # direct parse 결과 잘림 → text extraction + chunked parse fallback
-                print(f"[parse-pdf] {e}")
-                print(f"[parse-pdf] text extraction fallback 시도 중...")
+                # direct parse 잘림 또는 JSON 오류 → text extraction + chunked parse fallback
+                print(f"[parse-pdf] direct parse 실패 (LLM 출력 문제): {e}")
+                print(f"[parse-pdf] → text extraction fallback 시도 중...")
                 pages_fb: list[str] = []
                 for i, page in enumerate(reader.pages):
                     try:
@@ -146,8 +146,11 @@ async def parse_pdf_direct(file: UploadFile = File(...)):
     except HTTPException:
         raise
     except json.JSONDecodeError as e:
+        # parse_script() 내부에서 올라온 JSON 오류 (text fallback 경로에서도 실패한 경우)
+        print(f"[parse-pdf] [오류] LLM JSON 파싱 실패 (fallback 이후에도): {e}")
         raise HTTPException(500, f"PDF 파싱 실패 (LLM JSON 오류): {e}")
     except Exception as e:
+        print(f"[parse-pdf] [오류] 예외 발생 ({type(e).__name__}): {e}")
         raise HTTPException(500, f"PDF 파싱 중 오류 ({type(e).__name__}): {e}")
 
 

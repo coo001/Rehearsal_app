@@ -25,6 +25,7 @@ Output format:
       "emotion_label": "감정 단어 하나 또는 짧은 구",
       "intensity": 2,
       "tempo": "보통",
+      "next_cue_delay_ms": 300,
       "pause_after": 600
     },
     {"type": "direction", "text": "지문/무대지시 내용"}
@@ -34,7 +35,14 @@ Output format:
 intensity 기준 (정수 1~5):
 1 = 매우 절제  2 = 차분  3 = 보통  4 = 다소 강함  5 = 강렬 (드물게)
 tempo: "느리게" | "보통" | "빠르게"
-pause_after (ms): 일반 400~700 / 감정적 800~1500 / 극적 1500~3000 / 짧은 반응 300~500
+next_cue_delay_ms (ms): auto-advance 모드에서 이 대사가 시작되기 전 대기 시간
+- 즉각 반응 / 끊기 / 반박: 0~150
+- 빠른 응수 / 논쟁 / 이어받기: 150~300
+- 일반 대화 교환: 300~500
+- 망설임 / 생각 / 비트 전환: 500~900
+- 긴 침묵 / 깨달음 / 감정 처리 후: 900~1500
+pause_after (ms): 이 대사 오디오가 끝난 뒤 다음 라인으로 넘어가기 전 대기 시간
+- 일반 400~700 / 감정적 800~1500 / 극적 1500~3000 / 짧은 반응 300~500
 
 Korean theatrical script format (한국어 연극 대본):
 - Dialogue format: "화자명 대사내용" — speaker name at line start, single space, then speech. NO colon.
