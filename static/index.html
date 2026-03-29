@@ -569,9 +569,41 @@
         <button class="btn btn-outline" id="auto-assign-btn" onclick="autoAssignVoices()">
           <span id="auto-assign-text">🤖 AI 자동 배정</span>
         </button>
-        <button class="btn btn-primary" onclick="startGeneration()">
-          🎵 음성 생성 시작 →
+        <button class="btn btn-primary" onclick="showScopeSelector()">
+          📍 다음: 연습 범위 →
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 3.5단계: 연습 범위 선택 ── -->
+  <div id="phase-scope" class="hidden">
+    <div class="panel">
+      <div class="panel-title">📍 연습 범위 선택</div>
+      <p style="font-size:0.88rem; color:var(--muted); margin-bottom:12px;">
+        전체 대본을 연습할지, 특정 구간만 연습할지 선택하세요.
+      </p>
+      <div id="scope-info" style="font-size:0.85rem; color:var(--muted); margin-bottom:16px;"></div>
+      <div style="display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap;">
+        <button class="btn btn-primary" id="scope-full-btn" onclick="setScopeMode('full')">전체 대본</button>
+        <button class="btn btn-outline" id="scope-range-btn" onclick="setScopeMode('range')">구간 선택</button>
+      </div>
+      <div id="scope-range-inputs" class="hidden" style="margin-bottom:16px;">
+        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+          <label style="font-size:0.88rem;">시작 항목:</label>
+          <input type="number" id="scope-start" min="1" value="1"
+                 style="width:80px; padding:6px 8px; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text);"
+                 oninput="updateScopePreview()">
+          <label style="font-size:0.88rem;">끝 항목:</label>
+          <input type="number" id="scope-end" min="1" value="1"
+                 style="width:80px; padding:6px 8px; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text);"
+                 oninput="updateScopePreview()">
+        </div>
+        <div id="scope-preview" style="margin-top:8px; font-size:0.82rem; color:var(--muted);"></div>
+      </div>
+      <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        <button class="btn btn-outline" onclick="showPhase('voices'); setStep(3);">← 목소리 선택</button>
+        <button class="btn btn-primary" onclick="confirmScope()">🎵 음성 생성 시작 →</button>
       </div>
     </div>
   </div>
@@ -701,6 +733,13 @@ let autoAdvanceTimer = null;  // goToVoices 자동 진행 타이머 (goBack 시 
 let autoAdvance = false;     // 자동 진행 여부
 let countdownTimer = null;   // 자동 진행 타이머
 let scriptVisibilityMode = 'show_all'; // 'show_all' | 'hide_my_lines' | 'hide_all_lines'
+let rehearsalStartIdx = 0;   // inclusive, 0-based index into parsedScript.lines
+let rehearsalEndIdx = null;  // inclusive, 0-based; null = last line
+let _scopeMode = 'full';     // 'full' | 'range'
+
+function getScopeEnd() {
+  return rehearsalEndIdx ?? (parsedScript ? parsedScript.lines.length - 1 : 0);
+}
 
 function shouldMaskLine(line, mode, userChar) {
   if (line.type === 'direction') return false;
@@ -853,14 +892,21 @@ async function restoreSession(sessionId) {
     if (!res.ok) { showToast('세션을 불러올 수 없습니다.', 'error'); return; }
     const data = await res.json();
 
-    parsedScript     = data.parsed_script;
-    voiceAssignments = data.voice_assignments || {};
-    sessionId        = data.session_id;
-    audioMap         = data.audio_map || {};
-    userCharacter    = data.user_character || null;
+    parsedScript       = data.parsed_script;
+    voiceAssignments   = data.voice_assignments || {};
+    sessionId          = data.session_id;
+    audioMap           = data.audio_map || {};
+    userCharacter      = data.user_character || null;  // default, not locked
+    rehearsalStartIdx  = data.rehearsal_start_idx ?? 0;
+    rehearsalEndIdx    = data.rehearsal_end_idx ?? null;
 
     const restoredLineCount = parsedScript?.lines?.length || 0;
-    console.log(`[Session] 복원 완료 — lines=${restoredLineCount}, audio=${Object.keys(audioMap).length}`);
+    const availableChars = parsedScript?.characters || [];
+    console.log(
+      `[Session] 복원 완료 — session=${data.session_id?.slice(0,8)}, lines=${restoredLineCount},` +
+      ` audio=${Object.keys(audioMap).length}, characters=${availableChars.length},` +
+      ` restored_role="${userCharacter}", role_selector=enabled`
+    );
     if (restoredLineCount < 10) {
       console.warn('[Session] 복원된 대본이 너무 짧습니다. 대본을 다시 분석해 보세요.');
     }
@@ -870,14 +916,22 @@ async function restoreSession(sessionId) {
       document.getElementById('script-input').value = data.script_text;
     }
 
+    // 캐릭터 목록 렌더링 후 이전 역할을 기본값으로 pre-select (잠금 아님)
     renderCharacters();
-    renderVoiceTable();
-    setStep(5);
-    showPhase('rehearsal');
-    startRehearsal();
+    if (userCharacter && availableChars.includes(userCharacter)) {
+      const card = [...document.querySelectorAll('.char-card')].find(
+        c => c.querySelector('.char-name')?.textContent === userCharacter
+      );
+      if (card) selectCharacter(userCharacter, card);
+    }
+
+    // 역할 선택 화면으로 이동 — 사용자가 역할을 확인/변경 후 진행 가능
+    setStep(2);
+    showPhase('characters');
+    const restoredRoleHint = userCharacter ? ` (이전 역할: ${userCharacter})` : '';
     const restoreMsg = restoredLineCount < 10
-      ? `"${data.title || '세션'}" 복원 완료 (경고: 대사 ${restoredLineCount}줄만 있음 — 재분석 권장)`
-      : `"${data.title || '세션'}" 불러오기 완료`;
+      ? `"${data.title || '세션'}" 복원 (경고: 대사 ${restoredLineCount}줄만 있음)`
+      : `"${data.title || '세션'}" 복원 완료${restoredRoleHint} — 역할을 확인하고 계속하세요.`;
     showToast(restoreMsg, restoredLineCount < 10 ? 'warning' : 'success');
   } catch(e) {
     showToast('세션 복원 중 오류가 발생했습니다.', 'error');
@@ -906,6 +960,8 @@ async function saveCurrentSession() {
         user_character: userCharacter,
         voice_assignments: voiceAssignments,
         audio_map: audioMap,
+        rehearsal_start_idx: rehearsalStartIdx,
+        rehearsal_end_idx: rehearsalEndIdx,
       }),
     });
     console.log('[Session] 저장 완료:', sessionId);
@@ -930,7 +986,7 @@ function setStep(active) {
 }
 
 function showPhase(phase) {
-  ['input','characters','voices','generating','rehearsal'].forEach(p => {
+  ['input','characters','voices','scope','generating','rehearsal'].forEach(p => {
     document.getElementById(`phase-${p}`).classList.add('hidden');
   });
   document.getElementById(`phase-${phase}`).classList.remove('hidden');
@@ -962,6 +1018,8 @@ async function handlePdfUpload(input) {
       throw new Error(err.detail || 'PDF 분석 실패');
     }
     parsedScript = await res.json();
+    rehearsalStartIdx = 0;
+    rehearsalEndIdx = null;
     const pdfLineCount = parsedScript.lines?.length || 0;
     console.log(`[Script] PDF 분석 완료 — lines=${pdfLineCount}, chars=${parsedScript.characters?.length || 0}`);
     if (pdfLineCount < 10) console.warn('[Script] 경고: 분석된 라인이 너무 적습니다. 서버 로그를 확인하세요.');
@@ -1016,6 +1074,8 @@ async function parseScript() {
       throw new Error(detail);
     }
     parsedScript = await res.json();
+    rehearsalStartIdx = 0;
+    rehearsalEndIdx = null;
     const textLineCount = parsedScript.lines?.length || 0;
     console.log(`[Script] 텍스트 분석 완료 — lines=${textLineCount}, chars=${parsedScript.characters?.length || 0}`);
     if (textLineCount < 10) console.warn('[Script] 경고: 분석된 라인이 너무 적습니다. 서버 로그를 확인하세요.');
@@ -1067,6 +1127,14 @@ function renderCharacters() {
 function selectCharacter(char, card) {
   document.querySelectorAll('.char-card').forEach(c => c.classList.remove('selected'));
   card.classList.add('selected');
+  // Switching to a different character invalidates role-specific generated audio
+  if (userCharacter !== null && userCharacter !== char) {
+    console.log(`[Session] 역할 변경 (${userCharacter} → ${char}) — 기존 생성 음성 초기화`);
+    audioMap = {};
+    sessionId = null;
+    rehearsalStartIdx = 0;
+    rehearsalEndIdx = null;
+  }
   userCharacter = char;
 
   const info = document.getElementById('selected-char-info');
@@ -1305,25 +1373,86 @@ async function autoAssignVoices() {
   }
 }
 
+// ── 3.5단계: 연습 범위 선택 ───────────────────────────────
+function showScopeSelector() {
+  _scopeMode = 'full';
+  const lines = parsedScript.lines;
+  const total = lines.length;
+  const aiLines = lines.filter(l => l.type === 'dialogue' && l.character !== userCharacter).length;
+  document.getElementById('scope-info').textContent =
+    `총 ${total}개 항목 (AI 대사 ${aiLines}줄, 전체 구간 기준)`;
+  document.getElementById('scope-start').value = 1;
+  document.getElementById('scope-start').max = total;
+  document.getElementById('scope-end').value = total;
+  document.getElementById('scope-end').max = total;
+  setScopeMode('full');
+  setStep(3);
+  showPhase('scope');
+}
+
+function setScopeMode(mode) {
+  _scopeMode = mode;
+  const inputs = document.getElementById('scope-range-inputs');
+  if (mode === 'full') {
+    document.getElementById('scope-full-btn').className = 'btn btn-primary';
+    document.getElementById('scope-range-btn').className = 'btn btn-outline';
+    inputs.classList.add('hidden');
+  } else {
+    document.getElementById('scope-full-btn').className = 'btn btn-outline';
+    document.getElementById('scope-range-btn').className = 'btn btn-primary';
+    inputs.classList.remove('hidden');
+    updateScopePreview();
+  }
+}
+
+function updateScopePreview() {
+  if (!parsedScript) return;
+  const lines = parsedScript.lines;
+  const startVal = parseInt(document.getElementById('scope-start').value) || 1;
+  const endVal = parseInt(document.getElementById('scope-end').value) || lines.length;
+  const startIdx = Math.max(0, startVal - 1);
+  const endIdx = Math.min(lines.length - 1, endVal - 1);
+  const scoped = lines.slice(startIdx, endIdx + 1);
+  const aiCount = scoped.filter(l => l.type === 'dialogue' && l.character !== userCharacter).length;
+  const myCount = scoped.filter(l => l.type === 'dialogue' && l.character === userCharacter).length;
+  document.getElementById('scope-preview').textContent =
+    `선택 범위: ${startIdx + 1}~${endIdx + 1}번 항목 — AI 대사 ${aiCount}줄, 내 대사 ${myCount}줄`;
+}
+
+function confirmScope() {
+  const lines = parsedScript.lines;
+  if (_scopeMode === 'full') {
+    rehearsalStartIdx = 0;
+    rehearsalEndIdx = null;
+  } else {
+    const startVal = parseInt(document.getElementById('scope-start').value) || 1;
+    const endVal = parseInt(document.getElementById('scope-end').value) || lines.length;
+    rehearsalStartIdx = Math.max(0, Math.min(startVal - 1, lines.length - 1));
+    rehearsalEndIdx = Math.max(rehearsalStartIdx, Math.min(endVal - 1, lines.length - 1));
+  }
+  startGeneration();
+}
+
 // ── 4단계: 음성 생성 ──────────────────────────────────────
 async function startGeneration() {
   setStep(4);
   showPhase('generating');
 
-  const nonUserLines = parsedScript.lines.filter(
-    (l, i) => l.type === 'dialogue' && l.character !== userCharacter
+  const scopeEnd = getScopeEnd();
+  const scopedLines = parsedScript.lines.slice(rehearsalStartIdx, scopeEnd + 1);
+
+  const nonUserLines = scopedLines.filter(
+    l => l.type === 'dialogue' && l.character !== userCharacter
   );
   const total = nonUserLines.length;
 
   if (total === 0) {
-    // 사용자 대사만 있는 경우 바로 연습으로
     startRehearsal();
     return;
   }
 
   const statusEl = document.getElementById('gen-status');
   const progressEl = document.getElementById('gen-progress');
-
   statusEl.textContent = '서버에 요청 중...';
 
   try {
@@ -1331,7 +1460,7 @@ async function startGeneration() {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
-        lines: parsedScript.lines,
+        lines: scopedLines,
         voice_assignments: voiceAssignments,
         user_character: userCharacter,
         character_descriptions: parsedScript.character_descriptions || {},
@@ -1341,9 +1470,14 @@ async function startGeneration() {
     if (!res.ok) throw new Error('음성 생성 요청 실패');
     const data = await res.json();
     sessionId = data.session_id;
-    audioMap = data.audio_map;
 
-    // 진행률 업데이트
+    // Remap server indices (0-based within scopedLines) → original parsedScript indices
+    audioMap = {};
+    Object.entries(data.audio_map).forEach(([subIdx, url]) => {
+      const originalIdx = rehearsalStartIdx + parseInt(subIdx);
+      audioMap[String(originalIdx)] = url;
+    });
+
     const generatedCount = Object.keys(audioMap).length;
     const pct = total > 0 ? Math.round(generatedCount / total * 100) : 100;
     progressEl.style.width = `${pct}%`;
@@ -1359,7 +1493,7 @@ async function startGeneration() {
   } catch (e) {
     showToast(`음성 생성 오류: ${e.message}`, 'error');
     setStep(3);
-    showPhase('voices');
+    showPhase('scope');
   }
 }
 
@@ -1368,7 +1502,9 @@ function buildScriptViewer() {
   const viewer = document.getElementById('script-viewer');
   if (!viewer || !parsedScript) return;
   viewer.innerHTML = '';
+  const scopeEnd = getScopeEnd();
   parsedScript.lines.forEach((line, i) => {
+    if (i < rehearsalStartIdx || i > scopeEnd) return;
     const div = document.createElement('div');
     div.id = `script-line-${i}`;
     if (line.type === 'direction') {
@@ -1396,7 +1532,7 @@ function startRehearsal() {
 
   buildScriptViewer();
 
-  currentLineIndex = 0;
+  currentLineIndex = rehearsalStartIdx;
   updateDisplay();
   if (autoAdvance) {
     setTimeout(() => playCurrentLine(), 600);
@@ -1405,10 +1541,12 @@ function startRehearsal() {
 
 function updateDisplay() {
   const lines = parsedScript.lines;
-  const total = lines.length;
+  const scopeEnd = getScopeEnd();
+  const scopeLen = scopeEnd - rehearsalStartIdx + 1;
+  const posInScope = currentLineIndex - rehearsalStartIdx + 1;
 
   document.getElementById('line-counter').textContent =
-    `${Math.min(currentLineIndex + 1, total)} / ${total}`;
+    `${Math.min(posInScope, scopeLen)} / ${scopeLen}`;
 
   // 스크롤 뷰 업데이트
   lines.forEach((_, i) => {
@@ -1420,9 +1558,8 @@ function updateDisplay() {
     else el.classList.add('upcoming');
   });
 
-
   // 현재 대사 박스 업데이트
-  if (currentLineIndex >= total) {
+  if (currentLineIndex > scopeEnd) {
     document.getElementById('current-box').className = 'current-line-box';
     document.getElementById('current-badge').textContent = '🎉 연습 완료';
     document.getElementById('current-badge').className = 'turn-badge dir';
@@ -1471,8 +1608,8 @@ function updateDisplay() {
     hintEl.textContent = hasAudio ? '재생 버튼을 눌러 AI 음성을 들으세요.' : '(음성 없음) 재생 버튼으로 다음으로 넘어갑니다.';
   }
 
-  document.getElementById('btn-prev').disabled = currentLineIndex === 0;
-  document.getElementById('btn-next').disabled = currentLineIndex >= total - 1;
+  document.getElementById('btn-prev').disabled = currentLineIndex <= rehearsalStartIdx;
+  document.getElementById('btn-next').disabled = currentLineIndex >= scopeEnd;
 }
 
 // ── 자동 진행 토글 ─────────────────────────────────────────
@@ -1767,13 +1904,14 @@ function navigate(dir) {
   stopListening();
   if (currentAudio) { currentAudio.pause(); currentAudio = null; setAudioStatus(false, ''); }
 
+  const scopeEnd = getScopeEnd();
   const newIdx = currentLineIndex + dir;
-  if (newIdx < 0 || newIdx >= parsedScript.lines.length) return;
+  if (newIdx < rehearsalStartIdx || newIdx > scopeEnd) return;
   currentLineIndex = newIdx;
   updateDisplay();
 
   // 자동 진행 모드: 다음 라인 자동 처리
-  if (autoAdvance && newIdx < parsedScript.lines.length) {
+  if (autoAdvance && newIdx <= scopeEnd) {
     const next = parsedScript.lines[newIdx];
     if (next.type === 'direction') {
       scheduleAutoAdvance(700, '지문');
@@ -1793,7 +1931,7 @@ function restartRehearsal() {
   clearCountdown();
   stopListening();
   if (currentAudio) { currentAudio.pause(); currentAudio = null; }
-  currentLineIndex = 0;
+  currentLineIndex = rehearsalStartIdx;
   updateDisplay();
   showToast('처음부터 다시 시작합니다.', 'success');
   if (autoAdvance) {
