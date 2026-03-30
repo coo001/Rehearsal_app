@@ -433,7 +433,7 @@
 <header>
   <span style="font-size:1.5rem">🎭</span>
   <h1>AI 대본 연습 시스템</h1>
-  <span>GPT-4o + OpenAI TTS</span>
+  <span>배우가 AI 상대역과 자연스럽게 리허설하는 웹</span>
 </header>
 
 <div class="container">
@@ -450,10 +450,13 @@
       <span class="step-num">3</span> 목소리 배정
     </div>
     <div class="step-item" id="step-4">
-      <span class="step-num">4</span> 음성 생성
+      <span class="step-num">4</span> 연습할 장면
     </div>
     <div class="step-item" id="step-5">
-      <span class="step-num">5</span> 연습 시작
+      <span class="step-num">5</span> 음성 생성
+    </div>
+    <div class="step-item" id="step-6">
+      <span class="step-num">6</span> 연습 시작
     </div>
   </div>
 
@@ -977,7 +980,7 @@ function showToast(msg, type = '') {
 }
 
 function setStep(active) {
-  for (let i = 1; i <= 5; i++) {
+  for (let i = 1; i <= 6; i++) {
     const el = document.getElementById(`step-${i}`);
     el.classList.remove('active', 'done');
     if (i < active) el.classList.add('done');
@@ -1316,7 +1319,12 @@ async function reAssignVoice(char) {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(body),
     });
-    if (!res.ok) throw new Error('재배정 실패');
+    if (!res.ok) {
+      let detail = '재배정 실패';
+      try { detail = (await res.json()).detail || detail; } catch {}
+      console.error('[VoiceAssign] 재배정 서버 오류:', res.status, detail);
+      throw new Error(detail);
+    }
     const data = await res.json();
     const newVoiceId = data.assignments?.[char];
     if (newVoiceId) {
@@ -1326,8 +1334,11 @@ async function reAssignVoice(char) {
       const row = document.getElementById(`voice-row-${char.replace(/\s/g,'_')}`);
       if (row) row.classList.remove('voice-confirmed');
       showToast(`${char} 목소리 재배정 완료`, 'success');
+    } else {
+      showToast(`${char} 재배정: 유효한 음성을 찾지 못했습니다. 직접 선택해 주세요.`, 'warning');
     }
   } catch (e) {
+    console.error('[VoiceAssign] 재배정 오류:', e);
     showToast(`재배정 실패: ${e.message}`, 'error');
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = '↻ 다시 추천'; }
@@ -1337,8 +1348,10 @@ async function reAssignVoice(char) {
 // ── AI 자동 목소리 배정 ───────────────────────────────────
 // 성공 시 true, 실패 시 false 반환 (goToVoices 자동 진행 판단용)
 async function autoAssignVoices() {
-  const otherChars = parsedScript.characters.filter(c => c !== userCharacter);
+  const otherChars = (parsedScript?.characters || []).filter(c => c !== userCharacter);
   if (!otherChars.length) return true;
+
+  console.log(`[VoiceAssign] 시작 — ${otherChars.length}명:`, otherChars);
 
   const btn = document.getElementById('auto-assign-btn');
   const txt = document.getElementById('auto-assign-text');
@@ -1354,18 +1367,33 @@ async function autoAssignVoices() {
         character_descriptions: parsedScript.character_descriptions || {},
       })
     });
-    if (!res.ok) throw new Error('자동 배정 실패');
+    if (!res.ok) {
+      let detail = '자동 배정 실패';
+      try { detail = (await res.json()).detail || detail; } catch {}
+      console.error('[VoiceAssign] 서버 오류:', res.status, detail);
+      throw new Error(detail);
+    }
     const data = await res.json();
+    const assigned = Object.keys(data.assignments || {}).length;
+    console.log(`[VoiceAssign] 완료 — ${assigned}/${otherChars.length}명 배정`, data.assignments);
 
-    Object.entries(data.assignments).forEach(([char, voiceId]) => {
+    Object.entries(data.assignments || {}).forEach(([char, voiceId]) => {
       voiceAssignments[char] = voiceId;
       const sel = document.getElementById(`voice-select-${char.replace(/\s/g,'_')}`);
       if (sel) sel.value = voiceId;
     });
-    showToast('AI가 캐릭터에 맞는 목소리를 배정했습니다!', 'success');
+
+    if (assigned === 0) {
+      showToast('자동 배정: 유효한 음성을 찾지 못했습니다. 직접 선택해 주세요.', 'warning');
+    } else if (assigned < otherChars.length) {
+      showToast(`자동 배정 완료 (${assigned}/${otherChars.length}명). 나머지는 직접 선택해 주세요.`, 'warning');
+    } else {
+      showToast('AI가 캐릭터에 맞는 목소리를 배정했습니다!', 'success');
+    }
     return true;
   } catch (e) {
-    showToast(`자동 배정 오류: ${e.message}`, 'error');
+    console.error('[VoiceAssign] 오류:', e);
+    showToast(`자동 배정 실패: ${e.message}`, 'error');
     return false;
   } finally {
     btn.disabled = false;
@@ -1386,7 +1414,7 @@ function showScopeSelector() {
   document.getElementById('scope-end').value = total;
   document.getElementById('scope-end').max = total;
   setScopeMode('full');
-  setStep(3);
+  setStep(4);
   showPhase('scope');
 }
 
@@ -1433,9 +1461,9 @@ function confirmScope() {
   startGeneration();
 }
 
-// ── 4단계: 음성 생성 ──────────────────────────────────────
+// ── 5단계: 음성 생성 ──────────────────────────────────────
 async function startGeneration() {
-  setStep(4);
+  setStep(5);
   showPhase('generating');
 
   const scopeEnd = getScopeEnd();
@@ -1486,18 +1514,18 @@ async function startGeneration() {
     await saveCurrentSession();
 
     setTimeout(() => {
-      setStep(5);
+      setStep(6);
       startRehearsal();
     }, 800);
 
   } catch (e) {
     showToast(`음성 생성 오류: ${e.message}`, 'error');
-    setStep(3);
+    setStep(4);
     showPhase('scope');
   }
 }
 
-// ── 5단계: 연습 ───────────────────────────────────────────
+// ── 6단계: 연습 ───────────────────────────────────────────
 function buildScriptViewer() {
   const viewer = document.getElementById('script-viewer');
   if (!viewer || !parsedScript) return;
