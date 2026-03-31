@@ -478,9 +478,7 @@
         </button>
         <input type="file" id="pdf-file-input" accept=".pdf" style="display:none"
                onchange="handlePdfUpload(this)">
-        <span id="pdf-status" class="audio-status hidden">
-          <span class="spinner"></span> PDF 분석 중... (1~5분 소요)
-        </span>
+        <span id="pdf-status" class="audio-status hidden"></span>
       </div>
 
       <textarea id="script-input" placeholder="대본을 여기에 붙여넣으세요.
@@ -736,6 +734,7 @@ let autoAdvanceTimer = null;  // goToVoices 자동 진행 타이머 (goBack 시 
 let autoAdvance = false;     // 자동 진행 여부
 let countdownTimer = null;   // 자동 진행 타이머
 let scriptVisibilityMode = 'show_all'; // 'show_all' | 'hide_my_lines' | 'hide_all_lines'
+let pendingPdfFile = null;  // PDF 업로드됐지만 아직 분석 안 된 파일
 let rehearsalStartIdx = 0;   // inclusive, 0-based index into parsedScript.lines
 let rehearsalEndIdx = null;  // inclusive, 0-based; null = last line
 let _scopeMode = 'full';     // 'full' | 'range'
@@ -996,62 +995,32 @@ function showPhase(phase) {
 }
 
 // ── 1단계: 대본 파싱 ──────────────────────────────────────
-// ── PDF 업로드 → 직접 파싱 (text extraction 건너뜀) ──────
-async function handlePdfUpload(input) {
+// PDF 업로드: 파일만 저장, 분석은 parseScript() 호출 시 실행
+function handlePdfUpload(input) {
   const file = input.files[0];
   if (!file) return;
   input.value = '';  // 같은 파일 재선택 허용
 
+  pendingPdfFile = file;
+  console.log(`[PDF] 파일 준비됨: ${file.name} (${(file.size / 1024).toFixed(0)}KB)`);
+
   const status = document.getElementById('pdf-status');
+  status.innerHTML = `📄 <strong>${file.name}</strong> — 아래 버튼으로 분석하세요`;
   status.classList.remove('hidden');
 
-  const formData = new FormData();
-  formData.append('file', file);
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 1_200_000); // 20분
-
-  try {
-    console.time('[parsePdf] api');
-    const res = await fetch('/api/parse-pdf', { method: 'POST', body: formData, signal: controller.signal });
-    console.timeEnd('[parsePdf] api');
-    clearTimeout(timeoutId);
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || 'PDF 분석 실패');
-    }
-    parsedScript = await res.json();
-    rehearsalStartIdx = 0;
-    rehearsalEndIdx = null;
-    const pdfLineCount = parsedScript.lines?.length || 0;
-    console.log(`[Script] PDF 분석 완료 — lines=${pdfLineCount}, chars=${parsedScript.characters?.length || 0}`);
-    if (pdfLineCount < 10) console.warn('[Script] 경고: 분석된 라인이 너무 적습니다. 서버 로그를 확인하세요.');
-    renderCharacters();
-    setStep(2);
-    showPhase('characters');
-    if (pdfLineCount < 10) {
-      showToast(`경고: 대사가 ${pdfLineCount}줄만 추출됐습니다. 파싱을 다시 시도해보세요.`, 'warning');
-    } else if (parsedScript.partial_failure) {
-      const { failed_chunks, total_chunks } = parsedScript.partial_failure;
-      showToast(`PDF 분석 완료 — ${parsedScript.characters.length}명 (일부 구간 실패: ${failed_chunks.length}/${total_chunks} 청크)`, 'warning');
-    } else {
-      showToast(`PDF 분석 완료! ${parsedScript.characters.length}명의 캐릭터를 발견했습니다.`, 'success');
-    }
-  } catch (e) {
-    clearTimeout(timeoutId);
-    const msg = e.name === 'AbortError'
-      ? 'PDF 분석 시간이 초과됐습니다 (20분). 대본을 짧게 나눠 시도해보세요.'
-      : `PDF 오류: ${e.message}`;
-    showToast(msg, 'error');
-    console.error('[handlePdfUpload]', e);
-  } finally {
-    status.classList.add('hidden');
-  }
+  // PDF가 입력 소스가 되므로 텍스트 입력란은 비움
+  document.getElementById('script-input').value = '';
 }
 
 async function parseScript() {
+  // PDF 대기 중이면 PDF 분석 경로로 분기
+  if (pendingPdfFile) {
+    await _parsePdfFile(pendingPdfFile);
+    return;
+  }
+
   const script = document.getElementById('script-input').value.trim();
-  if (!script) { showToast('대본을 입력해주세요.', 'error'); return; }
+  if (!script) { showToast('대본을 입력하거나 PDF를 업로드해주세요.', 'error'); return; }
 
   const btn = document.getElementById('parse-btn');
   const status = document.getElementById('parse-status');
@@ -1059,7 +1028,7 @@ async function parseScript() {
   status.classList.remove('hidden');
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 1_200_000); // 20분 (긴 대본 대응)
+  const timeoutId = setTimeout(() => controller.abort(), 1_200_000);
 
   try {
     console.time('[parseScript] api');
@@ -1103,6 +1072,60 @@ async function parseScript() {
   } finally {
     btn.disabled = false;
     status.classList.add('hidden');
+  }
+}
+
+// PDF 파일 분석 (parseScript에서 pendingPdfFile 있을 때 호출)
+async function _parsePdfFile(file) {
+  const btn = document.getElementById('parse-btn');
+  const pdfStatus = document.getElementById('pdf-status');
+  btn.disabled = true;
+  pdfStatus.innerHTML = '<span class="spinner"></span> PDF 분석 중... (1~5분 소요)';
+  pdfStatus.classList.remove('hidden');
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 1_200_000);
+
+  try {
+    console.time('[parsePdf] api');
+    const res = await fetch('/api/parse-pdf', { method: 'POST', body: formData, signal: controller.signal });
+    console.timeEnd('[parsePdf] api');
+    clearTimeout(timeoutId);
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || 'PDF 분석 실패');
+    }
+    parsedScript = await res.json();
+    pendingPdfFile = null;
+    rehearsalStartIdx = 0;
+    rehearsalEndIdx = null;
+    const pdfLineCount = parsedScript.lines?.length || 0;
+    console.log(`[Script] PDF 분석 완료 — lines=${pdfLineCount}, chars=${parsedScript.characters?.length || 0}`);
+    if (pdfLineCount < 10) console.warn('[Script] 경고: 분석된 라인이 너무 적습니다. 서버 로그를 확인하세요.');
+    renderCharacters();
+    setStep(2);
+    showPhase('characters');
+    if (pdfLineCount < 10) {
+      showToast(`경고: 대사가 ${pdfLineCount}줄만 추출됐습니다. 파싱을 다시 시도해보세요.`, 'warning');
+    } else if (parsedScript.partial_failure) {
+      const { failed_chunks, total_chunks } = parsedScript.partial_failure;
+      showToast(`PDF 분석 완료 — ${parsedScript.characters.length}명 (일부 구간 실패: ${failed_chunks.length}/${total_chunks} 청크)`, 'warning');
+    } else {
+      showToast(`PDF 분석 완료! ${parsedScript.characters.length}명의 캐릭터를 발견했습니다.`, 'success');
+    }
+  } catch (e) {
+    clearTimeout(timeoutId);
+    const msg = e.name === 'AbortError'
+      ? 'PDF 분석 시간이 초과됐습니다 (20분). 대본을 짧게 나눠 시도해보세요.'
+      : `PDF 오류: ${e.message}`;
+    showToast(msg, 'error');
+    console.error('[parsePdf]', e);
+  } finally {
+    btn.disabled = false;
+    pdfStatus.classList.add('hidden');
   }
 }
 
