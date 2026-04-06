@@ -54,6 +54,12 @@ async def generate_rehearsal(req: GenerateRehearsalRequest):
                     tts_direction=line.get("tts_direction"),
                     emotion_label=line.get("emotion_label"),
                     intensity=line.get("intensity"),
+                    speech_act=line.get("speech_act"),
+                    listener_pressure=line.get("listener_pressure"),
+                    phrase_breaks=line.get("phrase_breaks"),
+                    ending_shape=line.get("ending_shape"),
+                    delivery_mode=line.get("delivery_mode"),
+                    avoid=line.get("avoid"),
                 )
             else:
                 instructions = build_tts_instructions(
@@ -72,7 +78,8 @@ async def generate_rehearsal(req: GenerateRehearsalRequest):
                 f"\n  char_desc  : {(req.character_descriptions.get(char) or '')[:60]}"
                 f"\n  beat_goal  : {line.get('beat_goal') or '-'}"
                 f"\n  subtext    : {line.get('subtext') or '-'}"
-                f"\n  direction  : {line.get('tts_direction') or '-'}"
+                f"\n  speech_act : {line.get('speech_act') or '-'}"
+                f"\n  ending     : {line.get('ending_shape') or '-'}"
                 f"\n  prompt     : {instructions!r}"
             )
             generate_tts_file(voice_id, line["text"], instructions, audio_path, intensity=line.get("intensity", 2))
@@ -103,6 +110,12 @@ async def generate_single_line(req: SingleLineRequest):
                     tts_direction=req.tts_direction,
                     emotion_label=req.emotion_label,
                     intensity=req.intensity,
+                    speech_act=req.speech_act,
+                    listener_pressure=req.listener_pressure,
+                    phrase_breaks=req.phrase_breaks,
+                    ending_shape=req.ending_shape,
+                    delivery_mode=req.delivery_mode,
+                    avoid=req.avoid,
                 )
             else:
                 instructions = build_tts_instructions(

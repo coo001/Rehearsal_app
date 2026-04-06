@@ -54,11 +54,20 @@ def build_elevenlabs_prompt(
     tts_direction: str | None = None,
     emotion_label: str | None = None,
     intensity: int | None = None,
+    # 발화 행동·호흡·끝처리 필드 (새 필드; 없으면 tts_direction fallback)
+    speech_act: str | None = None,
+    listener_pressure: str | None = None,
+    phrase_breaks: str | None = None,
+    ending_shape: str | None = None,
+    delivery_mode: str | None = None,
+    avoid: str | None = None,
 ) -> str:
     """ElevenLabs용 발화 지시 문자열.
 
-    구조: 앵커 → 캐릭터 태도 → 목적 → 서브텍스트 → 전달 방식 → (강한 감정만)
-    필드가 없으면 해당 줄 생략. intensity < 3이면 감정 줄 생략.
+    새 필드(speech_act/phrase_breaks/ending_shape/delivery_mode/avoid)가 하나라도 있으면
+    목적·행동·호흡·끝처리 중심 구조로 조합.
+    없으면 기존 tts_direction fallback.
+    intensity < 3이면 감정 줄 생략.
     """
     parts = ["상대에게 직접 말하듯. 읽지 말고, 생각이 말이 되게."]
 
@@ -71,7 +80,22 @@ def build_elevenlabs_prompt(
     if subtext:
         parts.append(f"말 아래: {subtext}")
 
-    if tts_direction:
+    # 새 필드 중 하나라도 있으면 새 방식으로 조합, 없으면 tts_direction fallback
+    has_new = any([speech_act, phrase_breaks, ending_shape, delivery_mode, avoid])
+    if has_new:
+        if speech_act:
+            parts.append(speech_act)
+        if listener_pressure and listener_pressure in ("보통", "강함"):
+            parts.append(f"압박: {listener_pressure}")
+        if delivery_mode:
+            parts.append(delivery_mode)
+        if phrase_breaks:
+            parts.append(phrase_breaks)
+        if ending_shape:
+            parts.append(f"끝: {ending_shape}")
+        if avoid:
+            parts.append(f"금지: {avoid}")
+    elif tts_direction:
         parts.append(tts_direction)
 
     # 강한 감정만 명시 (intensity 3 이상)

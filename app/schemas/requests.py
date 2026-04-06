@@ -32,6 +32,13 @@ class SingleLineRequest(BaseModel):
     tactics: Optional[str] = None
     subtext: Optional[str] = None
     tts_direction: Optional[str] = None
+    # 발화 행동·호흡·끝처리 필드
+    speech_act: Optional[str] = None
+    listener_pressure: Optional[str] = None
+    phrase_breaks: Optional[str] = None
+    ending_shape: Optional[str] = None
+    delivery_mode: Optional[str] = None
+    avoid: Optional[str] = None
     # 하위 호환: 구형 단일 emotion 문자열
     emotion: Optional[str] = None
 

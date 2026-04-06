@@ -95,7 +95,7 @@ Rules:
 
 ENRICH_LINES_SYSTEM = """You are generating per-line performance data for an actor rehearsal product.
 
-Given character_analysis, relationships, and a list of dialogue lines, output beat_goal, subtext, and tts_direction for each line index.
+Given character_analysis, relationships, and a list of dialogue lines, output performance fields for each line index.
 
 Output format:
 {
@@ -103,7 +103,13 @@ Output format:
     "5": {
       "beat_goal": "short active verb phrase — what speaker tries to do to the other person",
       "subtext": "one short sentence — hidden pressure, fear, or need underneath the line",
-      "tts_direction": "short physical delivery cue only"
+      "speech_act": "발화 행동 — the social/performative act this line executes",
+      "listener_pressure": "없음|약함|보통|강함",
+      "phrase_breaks": "호흡/끊기 지점 묘사 or null",
+      "ending_shape": "끝처리 방식",
+      "delivery_mode": "전체 전달 질감",
+      "avoid": "금지할 읽기 방식 or null",
+      "tts_direction": "short physical delivery cue (backwards compat)"
     },
     "7": { ... }
   }
@@ -121,15 +127,45 @@ subtext:
   One short sentence an actor can hold internally while speaking.
   e.g. "지금 밀리면 끝난다" / "들킨 채로 주도권은 놓치고 싶지 않다" / "저 사람이 먼저 흔들리길 바란다"
 
+speech_act:
+  The social/performative act this utterance executes — what type of move is being made.
+  Not an emotion. The act itself.
+  e.g. "몰아붙임" / "달래기" / "회피" / "선언" / "고백" / "떠보기" / "경고" / "부탁" / "거절" / "인정"
+  Must be a single noun or short phrase.
+
+listener_pressure:
+  How much pressure this line puts on the listener.
+  Must be exactly one of: "없음" | "약함" | "보통" | "강함"
+
+phrase_breaks:
+  Where within the sentence the speaker would naturally pause or breath.
+  Describe the location physically, not emotionally.
+  e.g. "두 번째 문장 앞에서 짧게 끊음" / "쉼표 자리에서 한 박 멈춤" / "마지막 단어 직전 미세 끊김"
+  null if the line flows without notable internal pause.
+
+ending_shape:
+  How the line ends physically/vocally. Must be one of:
+  "삼킴" (swallowed, cut short) | "눌림" (pressed down, heavy close) |
+  "올라감" (rises, open question energy) | "닫힘" (clean close, definitive) |
+  "흘러나감" (trails off, unfinished) | "열림" (deliberately left open)
+
+delivery_mode:
+  Overall texture of delivery. Short phrase.
+  e.g. "flat하고 건조하게" / "천천히 고르며" / "가볍게 흘리듯" / "긴장 없이 담담하게" / "빠르고 날카롭게"
+
+avoid:
+  What delivery style would make this line sound wrong. Short instruction.
+  e.g. "눈물 섞인 읽기 금지" / "극적으로 강조 금지" / "감정 과잉 금지"
+  null if nothing specific to avoid.
+
 tts_direction:
-  Short physical delivery cue. Audible or physical — not internal psychology.
-  e.g. "낮게 시작" / "끝을 눌러 말함" / "중간에 짧게 멈춤" / "웃음기 없이 짧게"
+  Short physical delivery cue — kept for backwards compatibility.
+  e.g. "낮게 시작" / "끝을 눌러 말함" / "중간에 짧게 멈춤"
 
 Rules:
-- Use character_analysis and relationships to ground every beat_goal and subtext
+- Use character_analysis and relationships to ground every field
 - Output ONLY line indices present in the input lines array
-- If a line is simple/conversational, beat_goal is sufficient; subtext may be null
-- tts_direction: null if nothing specific
+- If a line is simple/conversational, beat_goal is sufficient; other fields may be null
 - Do NOT output indices for direction-type lines (they are excluded from input)
 - Output valid JSON only. No text outside JSON."""
 
@@ -196,6 +232,12 @@ Output format:
       "emotion_label": "감정을 단어 하나 또는 짧은 구로",
       "intensity": 2,
       "tempo": "보통",
+      "speech_act": "발화 행동 — 이 대사가 수행하는 사회적/발화적 행위. null if none.",
+      "listener_pressure": "없음|약함|보통|강함",
+      "phrase_breaks": "대사 내 호흡/끊기 지점 묘사. null if none.",
+      "ending_shape": "삼킴|눌림|올라감|닫힘|흘러나감|열림",
+      "delivery_mode": "전체 전달 질감. null if none.",
+      "avoid": "금지할 읽기 방식. null if none.",
       "tts_direction": "short physical delivery cue only. null if none.",
       "pause_after": 600
     },
@@ -247,6 +289,36 @@ subtext:
   - 불안하다         (emotion label만)
   - 화가 난다        (emotion label만)
   - 상대를 이기고 싶다  (beat_goal 반복)
+
+speech_act:
+  The social/performative act this utterance executes — what type of move is being made.
+  Not an emotion. The act itself.
+  e.g. "몰아붙임" / "달래기" / "회피" / "선언" / "고백" / "떠보기" / "경고" / "부탁" / "거절" / "인정"
+  Single noun or short phrase. null if none.
+
+listener_pressure:
+  How much pressure this line puts on the listener.
+  Must be exactly one of: "없음" | "약함" | "보통" | "강함"
+
+phrase_breaks:
+  Where within the sentence the speaker would naturally pause or breath.
+  Describe physically, not emotionally.
+  e.g. "두 번째 문장 앞에서 짧게 끊음" / "쉼표 자리에서 한 박 멈춤"
+  null if the line flows without notable internal pause.
+
+ending_shape:
+  How the line ends physically/vocally. Must be one of:
+  "삼킴" | "눌림" | "올라감" | "닫힘" | "흘러나감" | "열림"
+
+delivery_mode:
+  Overall texture of delivery. Short phrase.
+  e.g. "flat하고 건조하게" / "천천히 고르며" / "가볍게 흘리듯" / "긴장 없이 담담하게"
+  null if none.
+
+avoid:
+  What delivery style would make this line sound wrong.
+  e.g. "눈물 섞인 읽기 금지" / "극적으로 강조 금지"
+  null if nothing specific.
 
 tts_direction:
   Short, practical, speakable delivery direction.
