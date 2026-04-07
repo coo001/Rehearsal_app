@@ -6,83 +6,137 @@
 <title>🎭 AI 대본 연습 시스템</title>
 <style>
   :root {
-    --bg: #0f0f13;
-    --surface: #1a1a24;
-    --surface2: #23232f;
-    --border: #2e2e3e;
-    --accent: #7c6fff;
-    --accent2: #ff6fb0;
-    --text: #e8e8f0;
-    --muted: #888899;
-    --success: #4ade80;
-    --warning: #facc15;
-    --danger: #f87171;
+    --bg: #111118;
+    --surface: #1a1a26;
+    --surface2: #22222f;
+    --surface3: #2a2a3a;
+    --border: #35354a;
+    --border-strong: #52527a;
+    --accent: #6e62f5;
+    --accent-dim: rgba(110,98,245,0.18);
+    --accent-glow: rgba(110,98,245,0.28);
+    --text: #f0f0f8;
+    --text-dim: #c4c4dc;
+    --muted: #8c8ca8;
+    --success: #3ecf72;
+    --success-dim: rgba(62,207,114,0.14);
+    --warning: #f5c030;
+    --danger: #ef6060;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 15px;
     background: var(--bg);
     color: var(--text);
     min-height: 100vh;
+    line-height: 1.6;
   }
   header {
     background: var(--surface);
     border-bottom: 1px solid var(--border);
-    padding: 16px 24px;
+    padding: 16px 28px;
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 14px;
   }
-  header h1 { font-size: 1.3rem; font-weight: 700; }
-  header span { color: var(--muted); font-size: 0.9rem; }
+  header h1 { font-size: 1.15rem; font-weight: 700; }
+  header .header-sub { color: var(--muted); font-size: 0.88rem; }
 
-  .container { max-width: 900px; margin: 0 auto; padding: 24px; }
+  .container { max-width: 900px; margin: 0 auto; padding: 32px 24px; }
 
-  /* 단계 표시 */
+  /* ── Stepper ── */
   .steps {
     display: flex;
-    gap: 8px;
-    margin-bottom: 28px;
+    align-items: flex-start;
+    margin-bottom: 36px;
     overflow-x: auto;
     padding-bottom: 4px;
   }
   .step-item {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 8px;
-    padding: 6px 14px;
-    border-radius: 20px;
-    font-size: 0.82rem;
-    white-space: nowrap;
-    border: 1px solid var(--border);
-    color: var(--muted);
+    flex: 1;
+    min-width: 64px;
+    position: relative;
+    gap: 7px;
     transition: all 0.2s;
   }
-  .step-item.active { background: var(--accent); color: #fff; border-color: var(--accent); }
-  .step-item.done { background: var(--surface2); color: var(--success); border-color: var(--success); }
-  .step-num {
-    width: 18px; height: 18px; border-radius: 50%;
-    background: rgba(255,255,255,0.1);
-    display: flex; align-items: center; justify-content: center;
-    font-size: 0.7rem; font-weight: 700;
+  /* 단계 사이 연결선 */
+  .step-item:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    top: 15px;
+    left: calc(50% + 18px);
+    right: calc(-50% + 18px);
+    height: 2px;
+    background: var(--border);
+    transition: background 0.2s;
   }
-  .step-item.active .step-num { background: rgba(255,255,255,0.3); }
+  .step-item.done:not(:last-child)::after { background: var(--success); opacity: 0.5; }
+  .step-num {
+    width: 32px; height: 32px; border-radius: 50%;
+    border: 2px solid var(--border);
+    background: var(--surface2);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.82rem; font-weight: 700; color: var(--muted);
+    position: relative; z-index: 1;
+    transition: all 0.2s;
+  }
+  .step-label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--muted);
+    white-space: nowrap;
+    text-align: center;
+    transition: color 0.2s;
+  }
+  .step-item.active .step-num {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+    box-shadow: 0 0 0 5px var(--accent-glow);
+  }
+  .step-item.active .step-label { color: var(--text); font-weight: 700; }
+  .step-item.done .step-num {
+    background: var(--success-dim);
+    border-color: var(--success);
+    color: var(--success);
+  }
+  .step-item.done .step-label { color: var(--success); }
 
-  /* 패널 */
+  /* ── 패널 ── */
   .panel {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 24px;
+    border-radius: 14px;
+    padding: 28px;
     margin-bottom: 20px;
   }
   .panel-title {
-    font-size: 1.05rem;
-    font-weight: 600;
-    margin-bottom: 16px;
+    font-size: 1.15rem;
+    font-weight: 700;
+    margin-bottom: 6px;
     display: flex;
     align-items: center;
     gap: 8px;
+  }
+  .panel-desc {
+    color: var(--muted);
+    font-size: 0.92rem;
+    margin-bottom: 22px;
+    line-height: 1.5;
+  }
+  /* 핵심 CTA 영역 */
+  .panel-footer {
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
   }
 
   /* 폼 요소 */
@@ -93,12 +147,12 @@
     border: 1px solid var(--border);
     border-radius: 8px;
     color: var(--text);
-    padding: 14px;
+    padding: 16px;
     font-family: 'Consolas', monospace;
-    font-size: 0.88rem;
+    font-size: 0.95rem;
     resize: vertical;
     transition: border 0.2s;
-    line-height: 1.6;
+    line-height: 1.65;
     direction: ltr;
     unicode-bidi: plaintext;
   }
@@ -108,39 +162,53 @@
     border: 1px solid var(--border);
     border-radius: 8px;
     color: var(--text);
-    padding: 8px 12px;
-    font-size: 0.9rem;
+    padding: 9px 13px;
+    font-size: 0.92rem;
     cursor: pointer;
     transition: border 0.2s;
   }
   select:focus { outline: none; border-color: var(--accent); }
 
-  /* 버튼 */
+  /* ── 버튼 ── */
   .btn {
     padding: 10px 22px;
     border-radius: 8px;
     border: none;
-    font-size: 0.9rem;
+    font-size: 0.93rem;
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.18s;
     display: inline-flex;
     align-items: center;
     gap: 8px;
+    white-space: nowrap;
   }
-  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn:disabled { opacity: 0.38; cursor: not-allowed; }
+  /* 핵심 CTA — 크게 */
+  .btn-lg {
+    padding: 13px 30px;
+    font-size: 1rem;
+    border-radius: 10px;
+  }
   .btn-primary { background: var(--accent); color: #fff; }
-  .btn-primary:hover:not(:disabled) { background: #6b5ee8; }
+  .btn-primary:hover:not(:disabled) { background: #5d52d8; box-shadow: 0 4px 16px var(--accent-glow); }
   .btn-success { background: var(--success); color: #000; }
-  .btn-success:hover:not(:disabled) { background: #3bc76d; }
+  .btn-success:hover:not(:disabled) { background: #30bb60; }
   .btn-outline {
     background: transparent;
     border: 1px solid var(--border);
-    color: var(--text);
+    color: var(--text-dim);
   }
-  .btn-outline:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .btn-outline:hover:not(:disabled) { border-color: var(--border-strong); color: var(--text); }
+  .btn-ghost {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    padding: 10px 14px;
+  }
+  .btn-ghost:hover:not(:disabled) { color: var(--text); }
   .btn-danger { background: var(--danger); color: #fff; }
-  .btn-danger:hover:not(:disabled) { background: #e05555; }
+  .btn-danger:hover:not(:disabled) { background: #d44f4f; }
 
   /* 커스텀 확인 다이얼로그 */
   .confirm-overlay {
@@ -164,45 +232,45 @@
     display: flex; gap: 10px; justify-content: flex-end; margin-top: 4px;
   }
 
-  /* 캐릭터 카드 */
+  /* ── 캐릭터 카드 ── */
   .character-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
     gap: 12px;
-    margin: 16px 0;
+    margin: 8px 0 20px;
   }
   .char-card {
     background: var(--surface2);
     border: 2px solid var(--border);
     border-radius: 10px;
-    padding: 14px;
+    padding: 18px 14px;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.18s;
     text-align: center;
   }
-  .char-card:hover { border-color: var(--accent); }
-  .char-card.selected { border-color: var(--accent2); background: rgba(255,111,176,0.08); }
-  .char-card.user-role { border-color: var(--success); background: rgba(74,222,128,0.06); }
-  .char-name { font-weight: 700; font-size: 1rem; margin-bottom: 4px; }
-  .char-desc { font-size: 0.75rem; color: var(--muted); line-height: 1.4; }
+  .char-card:hover { border-color: var(--border-strong); background: var(--surface3); }
+  .char-card.selected { border-color: var(--accent); background: var(--accent-dim); }
+  .char-card.user-role { border-color: var(--success); background: var(--success-dim); }
+  .char-name { font-weight: 700; font-size: 1rem; margin-bottom: 6px; }
+  .char-desc { font-size: 0.83rem; color: var(--muted); line-height: 1.5; }
 
   /* 목소리 배정 테이블 */
   .voice-table { width: 100%; border-collapse: collapse; }
   .voice-table th, .voice-table td {
-    padding: 10px 14px;
+    padding: 12px 16px;
     text-align: left;
     border-bottom: 1px solid var(--border);
-    font-size: 0.88rem;
+    font-size: 0.92rem;
   }
   .voice-table th { color: var(--muted); font-weight: 500; }
   .voice-preview-btn {
-    padding: 4px 10px;
+    padding: 6px 12px;
     border-radius: 6px;
     border: 1px solid var(--border);
     background: transparent;
-    color: var(--muted);
+    color: var(--text-dim);
     cursor: pointer;
-    font-size: 0.78rem;
+    font-size: 0.85rem;
     transition: all 0.2s;
   }
   .voice-confirmed { background: rgba(74,222,128,0.07); border-left: 3px solid var(--success); }
@@ -230,14 +298,14 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 20px;
+    margin-bottom: 22px;
     flex-wrap: wrap;
     gap: 12px;
   }
   .rehearsal-info {
     display: flex;
-    gap: 16px;
-    font-size: 0.85rem;
+    gap: 18px;
+    font-size: 0.92rem;
     color: var(--muted);
   }
   .rehearsal-info strong { color: var(--text); }
@@ -250,45 +318,43 @@
     margin-bottom: 20px;
   }
   .script-line {
-    padding: 14px 20px;
+    padding: 16px 22px;
     border-bottom: 1px solid var(--border);
     transition: background 0.2s;
   }
   .script-line:last-child { border-bottom: none; }
-  .script-line.current { background: rgba(124,111,255,0.08); }
-  .script-line.past { opacity: 0.4; }
+  .script-line.current { background: var(--accent-dim); }
+  .script-line.past { opacity: 0.35; }
   .script-line.upcoming { opacity: 0.6; }
   .script-line.direction {
     font-style: italic;
     color: var(--muted);
-    font-size: 0.85rem;
-    padding: 8px 20px;
+    font-size: 0.9rem;
+    padding: 10px 22px;
   }
 
   .line-char-label {
-    font-size: 0.75rem;
+    font-size: 0.8rem;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    margin-bottom: 4px;
+    margin-bottom: 5px;
   }
   .line-char-label.user-char { color: var(--success); }
   .line-char-label.other-char { color: var(--accent); }
-  .line-text { font-size: 1rem; line-height: 1.6; }
-  .script-line.current .line-text {
-    font-size: 1.1rem;
-  }
+  .line-text { font-size: 1rem; line-height: 1.65; }
+  .script-line.current .line-text { font-size: 1.05rem; }
   .line-text.masked { color: var(--muted); letter-spacing: 0.1em; }
 
   .visibility-mode-bar {
     display: flex; gap: 6px; align-items: center;
-    margin-bottom: 10px; flex-wrap: wrap;
+    margin-bottom: 12px; flex-wrap: wrap;
   }
-  .visibility-mode-bar span { font-size: 0.78rem; color: var(--muted); margin-right: 2px; }
+  .visibility-mode-bar span { font-size: 0.88rem; color: var(--muted); margin-right: 4px; }
   .mode-btn {
-    font-size: 0.78rem; padding: 4px 10px; border-radius: 6px;
+    font-size: 0.85rem; padding: 6px 12px; border-radius: 6px;
     border: 1px solid var(--border); background: transparent;
-    color: var(--text); cursor: pointer; transition: all 0.15s;
+    color: var(--text-dim); cursor: pointer; transition: all 0.15s;
   }
   .mode-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
@@ -297,7 +363,7 @@
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 12px;
-    padding: 20px;
+    padding: 22px 24px;
     display: flex;
     align-items: center;
     gap: 16px;
@@ -309,32 +375,32 @@
   .current-line-box {
     background: var(--surface2);
     border: 2px solid var(--accent);
-    border-radius: 10px;
-    padding: 18px 22px;
+    border-radius: 12px;
+    padding: 22px 26px;
     margin-bottom: 16px;
-    min-height: 80px;
+    min-height: 88px;
   }
   .current-line-box.user-turn { border-color: var(--success); }
   .current-line-box.direction-turn { border-color: var(--border); }
   .turn-badge {
     display: inline-block;
-    padding: 3px 10px;
+    padding: 4px 12px;
     border-radius: 12px;
-    font-size: 0.78rem;
+    font-size: 0.82rem;
     font-weight: 700;
-    margin-bottom: 8px;
+    margin-bottom: 10px;
   }
-  .turn-badge.ai { background: rgba(124,111,255,0.2); color: var(--accent); }
-  .turn-badge.user { background: rgba(74,222,128,0.2); color: var(--success); }
-  .turn-badge.dir { background: rgba(136,136,153,0.2); color: var(--muted); }
-  .current-text { font-size: 1.15rem; line-height: 1.7; }
+  .turn-badge.ai { background: var(--accent-dim); color: var(--accent); }
+  .turn-badge.user { background: var(--success-dim); color: var(--success); }
+  .turn-badge.dir { background: rgba(140,140,168,0.12); color: var(--muted); }
+  .current-text { font-size: 1.18rem; line-height: 1.75; }
 
   /* 오디오 상태 표시 */
   .audio-status {
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 0.85rem;
+    font-size: 0.9rem;
     color: var(--muted);
   }
   .audio-wave {
@@ -377,9 +443,9 @@
     background: var(--surface2);
     border: 1px solid var(--border);
     border-radius: 10px;
-    padding: 14px 18px;
-    max-width: 320px;
-    font-size: 0.88rem;
+    padding: 14px 20px;
+    max-width: 340px;
+    font-size: 0.92rem;
     box-shadow: 0 8px 32px rgba(0,0,0,0.5);
     z-index: 999;
     transform: translateY(80px);
@@ -397,7 +463,7 @@
   .divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
 
   /* 진행률 텍스트 */
-  .gen-status { font-size: 0.85rem; color: var(--muted); margin-top: 8px; }
+  .gen-status { font-size: 0.9rem; color: var(--muted); margin-top: 10px; }
 
   /* 샘플 버튼 */
   .sample-btn-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
@@ -413,17 +479,17 @@
   /* 세션 목록 */
   .session-list { display: flex; flex-direction: column; gap: 8px; }
   .session-card {
-    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
-    padding: 12px 16px; cursor: pointer; display: flex; justify-content: space-between;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 18px; cursor: pointer; display: flex; justify-content: space-between;
     align-items: center; transition: border-color 0.15s;
   }
   .session-card:hover { border-color: var(--accent); }
-  .session-card-left { display: flex; flex-direction: column; gap: 3px; }
-  .session-card-title { font-weight: 600; font-size: 0.9rem; }
-  .session-card-meta { font-size: 0.78rem; color: var(--text-dim); }
+  .session-card-left { display: flex; flex-direction: column; gap: 4px; }
+  .session-card-title { font-weight: 600; font-size: 0.95rem; }
+  .session-card-meta { font-size: 0.85rem; color: var(--text-dim); }
   .session-card-del {
     background: none; border: none; color: var(--text-dim); cursor: pointer;
-    font-size: 0.85rem; padding: 4px 8px; border-radius: 4px; flex-shrink: 0;
+    font-size: 0.88rem; padding: 5px 9px; border-radius: 5px; flex-shrink: 0;
   }
   .session-card-del:hover { color: #f87171; background: rgba(248,113,113,0.1); }
 </style>
@@ -433,7 +499,7 @@
 <header>
   <span style="font-size:1.5rem">🎭</span>
   <h1>AI 대본 연습 시스템</h1>
-  <span>배우가 AI 상대역과 자연스럽게 리허설하는 웹</span>
+  <span class="header-sub">배우가 AI 상대역과 자연스럽게 리허설하는 웹</span>
 </header>
 
 <div class="container">
@@ -441,22 +507,28 @@
   <!-- 단계 표시 -->
   <div class="steps">
     <div class="step-item active" id="step-1">
-      <span class="step-num">1</span> 대본 입력
+      <div class="step-num">1</div>
+      <span class="step-label">대본 입력</span>
     </div>
     <div class="step-item" id="step-2">
-      <span class="step-num">2</span> 캐릭터 분석
+      <div class="step-num">2</div>
+      <span class="step-label">캐릭터 선택</span>
     </div>
     <div class="step-item" id="step-3">
-      <span class="step-num">3</span> 목소리 배정
+      <div class="step-num">3</div>
+      <span class="step-label">목소리 배정</span>
     </div>
     <div class="step-item" id="step-4">
-      <span class="step-num">4</span> 연습할 장면
+      <div class="step-num">4</div>
+      <span class="step-label">연습 범위</span>
     </div>
     <div class="step-item" id="step-5">
-      <span class="step-num">5</span> 음성 생성
+      <div class="step-num">5</div>
+      <span class="step-label">음성 생성</span>
     </div>
     <div class="step-item" id="step-6">
-      <span class="step-num">6</span> 연습 시작
+      <div class="step-num">6</div>
+      <span class="step-label">리허설</span>
     </div>
   </div>
 
@@ -464,18 +536,13 @@
   <div id="phase-input">
 
     <div class="panel">
-      <div class="panel-title">📝 대본 입력</div>
+      <div class="panel-title">대본 입력</div>
+      <p class="panel-desc">대본을 붙여넣거나 PDF를 업로드하세요. AI가 등장인물과 대사를 분석합니다.</p>
 
       <div class="sample-btn-row">
-        <button class="btn btn-outline" onclick="loadSample('korean')">
-          샘플 대본 불러오기 (한국어)
-        </button>
-        <button class="btn btn-outline" onclick="loadSample('english')">
-          Sample Script (English)
-        </button>
-        <button class="btn btn-outline" onclick="document.getElementById('pdf-file-input').click()">
-          📄 PDF 업로드
-        </button>
+        <button class="btn btn-outline" onclick="loadSample('korean')">샘플 (한국어)</button>
+        <button class="btn btn-outline" onclick="loadSample('english')">Sample (English)</button>
+        <button class="btn btn-outline" onclick="document.getElementById('pdf-file-input').click()">📄 PDF 업로드</button>
         <input type="file" id="pdf-file-input" accept=".pdf" style="display:none"
                onchange="handlePdfUpload(this)">
         <span id="pdf-status" class="audio-status hidden"></span>
@@ -495,21 +562,21 @@
 캐릭터A
 아니요, 방금 도착했어요."></textarea>
 
-      <div style="margin-top: 14px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
-        <button class="btn btn-primary" id="parse-btn" onclick="parseScript()">
-          <span id="parse-btn-text">🔍 AI 대본 분석</span>
+      <div class="panel-footer">
+        <button class="btn btn-primary btn-lg" id="parse-btn" onclick="parseScript()">
+          <span id="parse-btn-text">AI 대본 분석 →</span>
         </button>
         <span id="parse-status" class="audio-status hidden">
-          <span class="spinner"></span> GPT-4o가 대본을 분석 중... (짧은 대본 1~2분, 50페이지 이상 5~20분 소요)
+          <span class="spinner"></span> 분석 중... (1~2분, 장편 PDF는 더 소요)
         </span>
       </div>
     </div>
 
     <!-- 저장된 세션 목록 -->
     <div id="session-panel" class="panel hidden">
-      <div class="panel-title" style="justify-content:space-between;">
+      <div class="panel-title" style="font-size:1rem; justify-content:space-between;">
         <span>최근 작업</span>
-        <button class="btn btn-outline" style="font-size:0.8rem;padding:4px 10px;" onclick="loadSessions()">새로고침</button>
+        <button class="btn btn-ghost" style="font-size:0.85rem;" onclick="loadSessions()">새로고침</button>
       </div>
       <div id="session-list" class="session-list"></div>
     </div>
@@ -519,19 +586,15 @@
   <!-- ── 2단계: 캐릭터 확인 & 내 역할 선택 ── -->
   <div id="phase-characters" class="hidden">
     <div class="panel">
-      <div class="panel-title">👥 등장인물 분석 결과</div>
-      <div id="script-title" style="color:var(--muted); margin-bottom:14px; font-size:0.9rem;"></div>
-      <p style="font-size:0.88rem; color:var(--muted); margin-bottom:14px;">
-        연습할 <strong style="color:var(--text)">내 역할</strong>을 선택하세요. 선택한 역할의 대사는 직접 읽고, 나머지 캐릭터는 AI 음성으로 재생됩니다.
-      </p>
+      <div class="panel-title">내 역할 선택</div>
+      <p class="panel-desc">연습할 내 역할을 선택하세요. 선택한 역할은 직접 읽고, 나머지는 AI가 대신합니다.</p>
+      <div id="script-title" style="color:var(--muted); margin-bottom:16px; font-size:0.88rem;"></div>
       <div class="character-grid" id="character-grid"></div>
-      <div id="selected-char-info" class="hidden" style="margin-top:16px; padding:12px; background:rgba(74,222,128,0.06); border:1px solid var(--success); border-radius:8px; font-size:0.88rem; color:var(--success);">
+      <div id="selected-char-info" class="hidden" style="margin-top:16px; padding:12px 16px; background:var(--success-dim); border:1px solid var(--success); border-radius:8px; font-size:0.9rem; color:var(--success);">
       </div>
-      <div style="margin-top:16px; display:flex; gap:10px; flex-wrap:wrap;">
-        <button class="btn btn-outline" onclick="goBack(1)">← 대본 수정</button>
-        <button class="btn btn-primary" id="next-to-voices" onclick="goToVoices()" disabled>
-          목소리 배정 →
-        </button>
+      <div class="panel-footer">
+        <button class="btn btn-primary btn-lg" id="next-to-voices" onclick="goToVoices()" disabled>목소리 배정 →</button>
+        <button class="btn btn-ghost" onclick="goBack(1)">← 대본 수정</button>
       </div>
     </div>
   </div>
@@ -539,10 +602,8 @@
   <!-- ── 3단계: 목소리 배정 ── -->
   <div id="phase-voices" class="hidden">
     <div class="panel">
-      <div class="panel-title">🎙️ 캐릭터별 목소리 선택</div>
-      <p style="font-size:0.88rem; color:var(--muted); margin-bottom:16px;">
-        AI가 캐릭터 특성에 맞춰 자동으로 목소리를 배정합니다. 필요하면 직접 수정할 수 있습니다.
-      </p>
+      <div class="panel-title">목소리 배정</div>
+      <p class="panel-desc">AI가 캐릭터에 맞는 목소리를 배정합니다. 미리 듣고 조정할 수 있습니다.</p>
       <div id="voices-loading" class="audio-status">
         <span class="spinner"></span> 목소리 목록 불러오는 중...
       </div>
@@ -558,21 +619,19 @@
         <tbody id="voice-table-body"></tbody>
       </table>
       <div style="margin-top:20px; padding-top:16px; border-top:1px solid var(--border);">
-        <div style="font-size:0.85rem; color:var(--muted); margin-bottom:8px;">대사 보기 방식</div>
+        <div style="font-size:0.88rem; color:var(--muted); margin-bottom:10px;">대사 보기 방식</div>
         <div class="visibility-mode-bar">
           <button class="mode-btn active" data-mode="show_all" onclick="setVisibilityMode('show_all')">전체 보기</button>
           <button class="mode-btn" data-mode="hide_my_lines" onclick="setVisibilityMode('hide_my_lines')">내 대사 가리기</button>
           <button class="mode-btn" data-mode="hide_all_lines" onclick="setVisibilityMode('hide_all_lines')">모두 가리기</button>
         </div>
       </div>
-      <div style="margin-top:16px; display:flex; gap:10px; flex-wrap:wrap;">
-        <button class="btn btn-outline" onclick="goBack(2)">← 역할 선택</button>
+      <div class="panel-footer">
+        <button class="btn btn-primary btn-lg" onclick="showScopeSelector()">연습 범위 선택 →</button>
         <button class="btn btn-outline" id="auto-assign-btn" onclick="autoAssignVoices()">
           <span id="auto-assign-text">🤖 AI 자동 배정</span>
         </button>
-        <button class="btn btn-primary" onclick="showScopeSelector()">
-          📍 다음: 연습 범위 →
-        </button>
+        <button class="btn btn-ghost" onclick="goBack(2)">← 역할 선택</button>
       </div>
     </div>
   </div>
@@ -580,31 +639,29 @@
   <!-- ── 3.5단계: 연습 범위 선택 ── -->
   <div id="phase-scope" class="hidden">
     <div class="panel">
-      <div class="panel-title">📍 연습 범위 선택</div>
-      <p style="font-size:0.88rem; color:var(--muted); margin-bottom:12px;">
-        전체 대본을 연습할지, 특정 구간만 연습할지 선택하세요.
-      </p>
-      <div id="scope-info" style="font-size:0.85rem; color:var(--muted); margin-bottom:16px;"></div>
-      <div style="display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap;">
+      <div class="panel-title">연습 범위 선택</div>
+      <p class="panel-desc">전체 대본을 연습할지, 특정 구간만 연습할지 선택하세요.</p>
+      <div id="scope-info" style="font-size:0.9rem; color:var(--muted); margin-bottom:18px;"></div>
+      <div style="display:flex; gap:10px; margin-bottom:18px; flex-wrap:wrap;">
         <button class="btn btn-primary" id="scope-full-btn" onclick="setScopeMode('full')">전체 대본</button>
         <button class="btn btn-outline" id="scope-range-btn" onclick="setScopeMode('range')">구간 선택</button>
       </div>
-      <div id="scope-range-inputs" class="hidden" style="margin-bottom:16px;">
+      <div id="scope-range-inputs" class="hidden" style="margin-bottom:18px;">
         <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
-          <label style="font-size:0.88rem;">시작 항목:</label>
+          <label>시작 항목:</label>
           <input type="number" id="scope-start" min="1" value="1"
-                 style="width:80px; padding:6px 8px; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text);"
+                 style="width:80px; padding:8px 10px; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:0.95rem;"
                  oninput="updateScopePreview()">
-          <label style="font-size:0.88rem;">끝 항목:</label>
+          <label>끝 항목:</label>
           <input type="number" id="scope-end" min="1" value="1"
-                 style="width:80px; padding:6px 8px; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text);"
+                 style="width:80px; padding:8px 10px; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:0.95rem;"
                  oninput="updateScopePreview()">
         </div>
-        <div id="scope-preview" style="margin-top:8px; font-size:0.82rem; color:var(--muted);"></div>
+        <div id="scope-preview" style="margin-top:10px; font-size:0.88rem; color:var(--muted);"></div>
       </div>
-      <div style="display:flex; gap:10px; flex-wrap:wrap;">
-        <button class="btn btn-outline" onclick="gotoStep(3)">← 목소리 선택</button>
-        <button class="btn btn-primary" onclick="confirmScope()">🎵 음성 생성 시작 →</button>
+      <div class="panel-footer">
+        <button class="btn btn-primary btn-lg" onclick="confirmScope()">음성 생성 시작 →</button>
+        <button class="btn btn-ghost" onclick="gotoStep(3)">← 목소리 선택</button>
       </div>
     </div>
   </div>
@@ -612,10 +669,8 @@
   <!-- ── 4단계: 음성 생성 ── -->
   <div id="phase-generating" class="hidden">
     <div class="panel">
-      <div class="panel-title">⚙️ AI 음성 생성 중</div>
-      <p style="font-size:0.88rem; color:var(--muted); margin-bottom:16px;">
-        상대방 캐릭터들의 대사 음성을 생성하고 있습니다. 잠시만 기다려주세요.
-      </p>
+      <div class="panel-title">음성 생성 중</div>
+      <p class="panel-desc">AI 음성을 생성하고 있습니다. 잠시만 기다려주세요.</p>
       <div class="progress-bar">
         <div class="progress-fill" id="gen-progress" style="width:0%"></div>
       </div>
@@ -634,15 +689,14 @@
         </div>
       </div>
       <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-        <button class="btn btn-outline" onclick="restartRehearsal()">🔄 처음부터</button>
-        <button class="btn btn-outline" onclick="goBack(1)">새 대본</button>
-        <button class="btn btn-outline" id="auto-advance-toggle" onclick="toggleAutoAdvance()"
-                style="border-color:var(--muted);">
+        <button class="btn btn-outline" id="auto-advance-toggle" onclick="toggleAutoAdvance()">
           ⏸ 수동 진행
         </button>
-        <button class="btn btn-outline" onclick="endRehearsal()"
-                style="border-color:var(--danger); color:var(--danger);">
-          ✕ 연습 끝내기
+        <button class="btn btn-ghost" onclick="restartRehearsal()">🔄 처음부터</button>
+        <button class="btn btn-ghost" onclick="goBack(1)">새 대본</button>
+        <button class="btn btn-ghost" onclick="endRehearsal()"
+                style="color:var(--danger);">
+          ✕ 끝내기
         </button>
       </div>
     </div>
@@ -655,7 +709,7 @@
 
     <!-- 카운트다운 바 (자동 진행 시) -->
     <div id="countdown-bar-wrap" class="hidden" style="margin-bottom:10px;">
-      <div style="font-size:0.78rem; color:var(--muted); margin-bottom:4px;" id="countdown-label"></div>
+      <div style="font-size:0.85rem; color:var(--muted); margin-bottom:4px;" id="countdown-label"></div>
       <div style="width:100%; height:4px; background:var(--border); border-radius:2px; overflow:hidden;">
         <div id="countdown-bar" style="height:100%; background:linear-gradient(90deg,var(--accent),var(--accent2)); width:100%; transition:width linear;"></div>
       </div>
@@ -679,7 +733,7 @@
         </button>
         <button class="btn btn-outline" id="btn-next" onclick="navigate(1)">다음 ▶</button>
       </div>
-      <div style="font-size:0.83rem; color:var(--muted);">
+      <div style="font-size:0.9rem; color:var(--muted);">
         <span id="auto-advance-hint"></span>
       </div>
     </div>
@@ -688,7 +742,7 @@
 
     <!-- 전체 대본 스크롤 뷰 -->
     <div class="panel">
-      <div class="panel-title" style="margin-bottom:8px; font-size:0.9rem; color:var(--muted);">전체 대본</div>
+      <div class="panel-title" style="margin-bottom:10px; font-size:0.95rem; color:var(--muted);">전체 대본</div>
       <div class="visibility-mode-bar">
         <span>대본 보기:</span>
         <button class="mode-btn active" data-mode="show_all" onclick="setVisibilityMode('show_all')">전체 보기</button>
