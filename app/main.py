@@ -16,11 +16,12 @@ if hasattr(sys.stderr, "reconfigure"):
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api import audio, script, sessions, voices
-from app.core.config import AUDIO_DIR, ALLOWED_ORIGINS
+from app.core.config import AUDIO_DIR, ALLOWED_ORIGINS, TTS_PROVIDER
 
 app = FastAPI(title="대본 연습 시스템")
 
@@ -35,6 +36,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ─── 보안 헤더 ────────────────────────────────────────────────────
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        return response
+
+app.add_middleware(SecurityHeadersMiddleware)
 
 # ─── 한국어 에러 메시지 Content-Length 오류 방지 ──────────────────
 @app.exception_handler(HTTPException)
@@ -62,3 +74,19 @@ async def root():
 @app.get("/favicon.ico")
 async def favicon():
     return Response(status_code=204)
+
+
+@app.get("/health")
+async def health():
+    return JSONResponse({"ok": True})
+
+
+# ─── Startup summary ────────────────────────────────────────────
+@app.on_event("startup")
+async def startup_summary():
+    print(
+        f"[Startup] tts_provider={TTS_PROVIDER}"
+        f" | cors={ALLOWED_ORIGINS}"
+        f" | audio_mount={AUDIO_DIR}"
+        f" | static_mount=static"
+    )
