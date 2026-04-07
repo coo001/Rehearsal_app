@@ -1794,6 +1794,20 @@ function getReadingTimeMs(text) {
   return Math.max(2500, Math.min(ms, 10000));
 }
 
+// 대화 대사 자동 진행 delay 결정
+// direction은 별도 처리. 대화 기본값은 즉시(0ms).
+// (사이)/(pause)/(beat) 명시 → 300ms / 분석상 강한 pause 신호 → 150ms / 그 외 → 0ms
+function _dialogueAdvanceDelay(line) {
+  const text = line.text || '';
+  if (/\(사이\)|\(pause\)|\(beat\)|\(멈춤\)/i.test(text)) {
+    return { ms: 300, why: 'explicit-side' };
+  }
+  if ((line.next_cue_delay_ms ?? 0) > 500 || (line.pause_after ?? 0) > 500) {
+    return { ms: 150, why: 'analysis-pause' };
+  }
+  return { ms: 0, why: 'immediate' };
+}
+
 // 카운트다운 바 표시 + 타이머
 function scheduleAutoAdvance(ms, label) {
   clearCountdown();
@@ -1953,9 +1967,10 @@ async function playCurrentLine() {
   const audioUrl = audioMap[currentLineIndex];
   if (!audioUrl) {
     if (autoAdvance) {
-      const delay = Math.min(1500, Math.max(0, line.next_cue_delay_ms ?? 500));
-      console.log(`[Timing] idx=${currentLineIndex} no-audio, advance in ${delay}ms`);
-      scheduleAutoAdvance(delay, '');
+      const { ms: delay, why } = _dialogueAdvanceDelay(line);
+      console.log(`[Timing] idx=${currentLineIndex} type=dialogue no-audio → ${delay}ms (${why})`);
+      if (delay > 0) scheduleAutoAdvance(delay, '');
+      else navigate(1);
     } else {
       navigate(1);
     }
@@ -1972,8 +1987,12 @@ async function playCurrentLine() {
       setAudioStatus(false, '');
       document.getElementById('btn-play').disabled = false;
       document.getElementById('btn-play').textContent = '▶ 다시 재생';
-      const pauseMs = line.pause_after ?? 800;
-      if (autoAdvance) scheduleAutoAdvance(pauseMs, '다음 대사까지');
+      if (autoAdvance) {
+        const { ms: pauseMs, why } = _dialogueAdvanceDelay(line);
+        console.log(`[Timing] idx=${currentLineIndex} type=dialogue after-audio → ${pauseMs}ms (${why})`);
+        if (pauseMs > 0) scheduleAutoAdvance(pauseMs, '다음 대사까지');
+        else navigate(1);
+      }
     },
     onError: () => {
       setAudioStatus(false, '');
@@ -2060,10 +2079,11 @@ function navigate(dir) {
       // 내 차례 → 마이크 시작
       setTimeout(() => startListening(), 400);
     } else {
-      // AI 대사 — per-line next_cue_delay_ms 사용 (없으면 300ms 기본값)
-      const delay = Math.min(1500, Math.max(0, next.next_cue_delay_ms ?? 300));
-      console.log(`[Timing] idx=${newIdx} char='${next.character}' next_cue_delay=${delay}ms`);
-      setTimeout(() => playCurrentLine(), delay);
+      // AI 대사 — 즉시 재생, (사이)/analysis-pause 신호 있을 때만 짧은 delay
+      const { ms: delay, why } = _dialogueAdvanceDelay(next);
+      console.log(`[Timing] idx=${newIdx} type=dialogue char='${next.character}' → ${delay}ms (${why})`);
+      if (delay > 0) setTimeout(() => playCurrentLine(), delay);
+      else playCurrentLine();
     }
   }
 }
