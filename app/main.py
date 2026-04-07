@@ -20,14 +20,18 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from app.api import audio, script, sessions, voices
-from app.core.config import AUDIO_DIR
+from app.core.config import AUDIO_DIR, ALLOWED_ORIGINS
 
 app = FastAPI(title="대본 연습 시스템")
 
 # ─── CORS ──────────────────────────────────────────────────────
+# 허용 origin은 환경변수 ALLOWED_ORIGINS(콤마 구분)로 설정.
+# 미설정 시 localhost:8000만 허용 — 운영 배포 전 반드시 ALLOWED_ORIGINS 지정.
+print(f"[CORS] allowed_origins={ALLOWED_ORIGINS}")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )

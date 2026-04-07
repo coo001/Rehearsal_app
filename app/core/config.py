@@ -33,6 +33,16 @@ OPENAI_VOICE_ASSIGN_MODEL = os.environ.get("OPENAI_VOICE_ASSIGN_MODEL", "gpt-5.4
 ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
 ELEVENLABS_MODEL_ID = os.environ.get("ELEVENLABS_MODEL_ID", "eleven_multilingual_v2")
 
+# ─── CORS 허용 origin ──────────────────────────────────────────
+# ALLOWED_ORIGINS="https://example.com,http://localhost:3000" 형식으로 설정
+# 값이 없으면 로컬 개발 전용 (localhost:8000만 허용) — 운영에서는 반드시 명시
+_raw_origins = os.environ.get("ALLOWED_ORIGINS", "")
+ALLOWED_ORIGINS: list[str] = (
+    [o.strip() for o in _raw_origins.split(",") if o.strip()]
+    if _raw_origins.strip()
+    else ["http://localhost:8000", "http://127.0.0.1:8000"]
+)
+
 # ─── OpenAI TTS 목소리 목록 (11종) ─────────────────────────────
 OPENAI_TTS_VOICES = [
     {"voice_id": "alloy",   "name": "Alloy",   "gender": "중성", "description": "중성적, 차분하고 안정적"},
