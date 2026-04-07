@@ -743,6 +743,65 @@ function getScopeEnd() {
   return rehearsalEndIdx ?? (parsedScript ? parsedScript.lines.length - 1 : 0);
 }
 
+// ── canonical / scoped subset helpers ──────────────────────
+function getCanonicalLines() {
+  return parsedScript?.lines || [];
+}
+
+function getScopedBounds() {
+  return { start: rehearsalStartIdx, end: getScopeEnd() };
+}
+
+function getScopedLines() {
+  const { start, end } = getScopedBounds();
+  return getCanonicalLines().slice(start, end + 1);
+}
+
+function isInScope(index) {
+  const { start, end } = getScopedBounds();
+  return index >= start && index <= end;
+}
+
+// ── 상태 초기화 helpers ─────────────────────────────────────
+// 재생 중인 오디오/타이머 정지 (인덱스 변경 없음)
+function _stopPlayback() {
+  clearCountdown();
+  stopListening();
+  if (currentAudio) { currentAudio.pause(); currentAudio = null; setAudioStatus(false, ''); }
+  if (autoAdvanceTimer) { clearTimeout(autoAdvanceTimer); autoAdvanceTimer = null; }
+}
+
+// 재생 전체 초기화: 정지 + 위치를 범위 시작점으로 리셋
+function resetPlaybackState() {
+  _stopPlayback();
+  currentLineIndex = rehearsalStartIdx;
+}
+
+// ── run-level 상태 초기화 (역할 변경 전용) ────────────────
+// 상태 3층 구조:
+//   script-level : parsedScript                       → 유지
+//   role-level   : userCharacter, voiceAssignments    → selectCharacter()가 직접 관리
+//   run-level    : 아래 항목들 — 역할이 바뀌면 무효화
+function resetRunStateForRoleChange() {
+  _stopPlayback();        // 재생 중이면 즉시 정지
+  audioMap = {};          // 이전 역할 기준 생성 음성 무효화
+  sessionId = null;       // 서버 세션 무효화
+  rehearsalStartIdx = 0;  // 연습 범위 초기화
+  rehearsalEndIdx = null;
+  currentLineIndex = 0;   // 재생 위치 초기화
+}
+
+// 세션 복원 데이터를 상태 변수에 일괄 적용
+function _applySessionData(data) {
+  parsedScript      = data.parsed_script;
+  voiceAssignments  = data.voice_assignments || {};
+  sessionId         = data.session_id;
+  audioMap          = data.audio_map || {};
+  userCharacter     = data.user_character || null;
+  rehearsalStartIdx = data.rehearsal_start_idx ?? 0;
+  rehearsalEndIdx   = data.rehearsal_end_idx ?? null;
+}
+
 function shouldMaskLine(line, mode, userChar) {
   if (line.type === 'direction') return false;
   if (mode === 'hide_all_lines') return true;
@@ -894,13 +953,7 @@ async function restoreSession(sessionId) {
     if (!res.ok) { showToast('세션을 불러올 수 없습니다.', 'error'); return; }
     const data = await res.json();
 
-    parsedScript       = data.parsed_script;
-    voiceAssignments   = data.voice_assignments || {};
-    sessionId          = data.session_id;
-    audioMap           = data.audio_map || {};
-    userCharacter      = data.user_character || null;  // default, not locked
-    rehearsalStartIdx  = data.rehearsal_start_idx ?? 0;
-    rehearsalEndIdx    = data.rehearsal_end_idx ?? null;
+    _applySessionData(data);  // parsedScript, voiceAssignments, sessionId, audioMap, userCharacter, rehearsalStartIdx, rehearsalEndIdx
 
     const restoredLineCount = parsedScript?.lines?.length || 0;
     const availableChars = parsedScript?.characters || [];
@@ -978,6 +1031,16 @@ function showToast(msg, type = '') {
   setTimeout(() => t.className = 'toast', 3000);
 }
 
+// step 번호 ↔ phase 이름의 단일 source-of-truth
+const STEP_PHASES = {
+  1: 'input',
+  2: 'characters',
+  3: 'voices',
+  4: 'scope',
+  5: 'generating',
+  6: 'rehearsal',
+};
+
 function setStep(active) {
   for (let i = 1; i <= 6; i++) {
     const el = document.getElementById(`step-${i}`);
@@ -988,7 +1051,7 @@ function setStep(active) {
 }
 
 function showPhase(phase) {
-  ['input','characters','voices','scope','generating','rehearsal'].forEach(p => {
+  Object.values(STEP_PHASES).forEach(p => {
     document.getElementById(`phase-${p}`).classList.add('hidden');
   });
   document.getElementById(`phase-${phase}`).classList.remove('hidden');
@@ -1153,13 +1216,12 @@ function renderCharacters() {
 function selectCharacter(char, card) {
   document.querySelectorAll('.char-card').forEach(c => c.classList.remove('selected'));
   card.classList.add('selected');
-  // Switching to a different character invalidates role-specific generated audio
   if (userCharacter !== null && userCharacter !== char) {
-    console.log(`[Session] 역할 변경 (${userCharacter} → ${char}) — 기존 생성 음성 초기화`);
-    audioMap = {};
-    sessionId = null;
-    rehearsalStartIdx = 0;
-    rehearsalEndIdx = null;
+    console.log(
+      `[Session] 역할 변경: "${userCharacter}" → "${char}"` +
+      ` — run-level 무효화: audioMap(${Object.keys(audioMap).length}개), sessionId, 범위, 위치`
+    );
+    resetRunStateForRoleChange();
   }
   userCharacter = char;
 
@@ -1489,8 +1551,19 @@ async function startGeneration() {
   setStep(5);
   showPhase('generating');
 
-  const scopeEnd = getScopeEnd();
-  const scopedLines = parsedScript.lines.slice(rehearsalStartIdx, scopeEnd + 1);
+  const { start: scopeStart, end: scopeEnd } = getScopedBounds();
+  const scopedLines = getScopedLines();
+
+  const canonical = getCanonicalLines();
+  console.log(`[Gen] canonical=${canonical.length}줄, scope=[${scopeStart}..${scopeEnd}], scoped=${scopedLines.length}줄`);
+  if (scopedLines.length === 0) {
+    console.warn('[Gen] scoped line count is 0 — 범위를 확인하세요');
+    showToast('연습 범위 안에 대사가 없습니다. 범위를 확인하세요.', 'error');
+    setStep(4); showPhase('scope'); return;
+  }
+  if (scopeStart > canonical.length - 1 || scopeEnd > canonical.length - 1) {
+    console.warn(`[Gen] 범위 초과 — canonical length=${canonical.length}, scope=[${scopeStart}..${scopeEnd}]`);
+  }
 
   const nonUserLines = scopedLines.filter(
     l => l.type === 'dialogue' && l.character !== userCharacter
@@ -1525,7 +1598,7 @@ async function startGeneration() {
     // Remap server indices (0-based within scopedLines) → original parsedScript indices
     audioMap = {};
     Object.entries(data.audio_map).forEach(([subIdx, url]) => {
-      const originalIdx = rehearsalStartIdx + parseInt(subIdx);
+      const originalIdx = scopeStart + parseInt(subIdx);
       audioMap[String(originalIdx)] = url;
     });
 
@@ -1553,9 +1626,8 @@ function buildScriptViewer() {
   const viewer = document.getElementById('script-viewer');
   if (!viewer || !parsedScript) return;
   viewer.innerHTML = '';
-  const scopeEnd = getScopeEnd();
-  parsedScript.lines.forEach((line, i) => {
-    if (i < rehearsalStartIdx || i > scopeEnd) return;
+  getCanonicalLines().forEach((line, i) => {
+    if (!isInScope(i)) return;
     const div = document.createElement('div');
     div.id = `script-line-${i}`;
     if (line.type === 'direction') {
@@ -1583,7 +1655,7 @@ function startRehearsal() {
 
   buildScriptViewer();
 
-  currentLineIndex = rehearsalStartIdx;
+  currentLineIndex = getScopedBounds().start;
   updateDisplay();
   if (autoAdvance) {
     setTimeout(() => playCurrentLine(), 600);
@@ -1591,10 +1663,10 @@ function startRehearsal() {
 }
 
 function updateDisplay() {
-  const lines = parsedScript.lines;
-  const scopeEnd = getScopeEnd();
-  const scopeLen = scopeEnd - rehearsalStartIdx + 1;
-  const posInScope = currentLineIndex - rehearsalStartIdx + 1;
+  const lines = getCanonicalLines();
+  const { start: scopeStart, end: scopeEnd } = getScopedBounds();
+  const scopeLen = scopeEnd - scopeStart + 1;
+  const posInScope = currentLineIndex - scopeStart + 1;
 
   document.getElementById('line-counter').textContent =
     `${Math.min(posInScope, scopeLen)} / ${scopeLen}`;
@@ -1659,7 +1731,7 @@ function updateDisplay() {
     hintEl.textContent = hasAudio ? '재생 버튼을 눌러 AI 음성을 들으세요.' : '(음성 없음) 재생 버튼으로 다음으로 넘어갑니다.';
   }
 
-  document.getElementById('btn-prev').disabled = currentLineIndex <= rehearsalStartIdx;
+  document.getElementById('btn-prev').disabled = currentLineIndex <= scopeStart;
   document.getElementById('btn-next').disabled = currentLineIndex >= scopeEnd;
 }
 
@@ -1951,13 +2023,11 @@ async function playNormalizedAudio(url, { onEnded, onError } = {}) {
 }
 
 function navigate(dir) {
-  clearCountdown();
-  stopListening();
-  if (currentAudio) { currentAudio.pause(); currentAudio = null; setAudioStatus(false, ''); }
+  _stopPlayback();
 
-  const scopeEnd = getScopeEnd();
+  const { start: scopeStart, end: scopeEnd } = getScopedBounds();
   const newIdx = currentLineIndex + dir;
-  if (newIdx < rehearsalStartIdx || newIdx > scopeEnd) return;
+  if (newIdx < scopeStart || newIdx > scopeEnd) return;
   currentLineIndex = newIdx;
   updateDisplay();
 
@@ -1979,10 +2049,7 @@ function navigate(dir) {
 }
 
 function restartRehearsal() {
-  clearCountdown();
-  stopListening();
-  if (currentAudio) { currentAudio.pause(); currentAudio = null; }
-  currentLineIndex = rehearsalStartIdx;
+  resetPlaybackState();
   updateDisplay();
   showToast('처음부터 다시 시작합니다.', 'success');
   if (autoAdvance) {
@@ -2007,9 +2074,7 @@ function closeEndRehearsalDialog() {
 
 function _doEndRehearsal() {
   closeEndRehearsalDialog();
-  clearCountdown();
-  stopListening();
-  if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+  _stopPlayback();
   if (autoAdvance) {
     autoAdvance = false;
     const toggleBtn = document.getElementById('auto-advance-toggle');
@@ -2024,12 +2089,9 @@ function _doEndRehearsal() {
 
 // ── 뒤로 가기 ────────────────────────────────────────────
 function goBack(toStep) {
-  stopListening();
-  if (currentAudio) { currentAudio.pause(); currentAudio = null; }
-  if (autoAdvanceTimer) { clearTimeout(autoAdvanceTimer); autoAdvanceTimer = null; }
-  const phases = ['input', 'characters', 'voices', 'generating', 'rehearsal'];
+  _stopPlayback();
   setStep(toStep);
-  showPhase(phases[toStep - 1]);
+  showPhase(STEP_PHASES[toStep]);
 }
 
 // 페이지 로드 시 저장된 세션 목록 표시
