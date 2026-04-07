@@ -603,7 +603,7 @@
         <div id="scope-preview" style="margin-top:8px; font-size:0.82rem; color:var(--muted);"></div>
       </div>
       <div style="display:flex; gap:10px; flex-wrap:wrap;">
-        <button class="btn btn-outline" onclick="showPhase('voices'); setStep(3);">← 목소리 선택</button>
+        <button class="btn btn-outline" onclick="gotoStep(3)">← 목소리 선택</button>
         <button class="btn btn-primary" onclick="confirmScope()">🎵 음성 생성 시작 →</button>
       </div>
     </div>
@@ -722,34 +722,36 @@
 
 <script>
 // ── 전역 상태 ──────────────────────────────────────────────
-let parsedScript = null;     // { title, characters, character_descriptions, lines }
-let userCharacter = null;
-let voiceAssignments = {};
-let availableVoices = [];
-let sessionId = null;
-let audioMap = {};
-let currentLineIndex = 0;
+const appState = {
+  parsedScript:      null,   // { title, characters, character_descriptions, lines }
+  userCharacter:     null,
+  voiceAssignments:  {},
+  availableVoices:   [],
+  sessionId:         null,
+  audioMap:          {},
+  currentLineIndex:  0,
+  rehearsalStartIdx: 0,      // inclusive, 0-based index into parsedScript.lines
+  rehearsalEndIdx:   null,   // inclusive, 0-based; null = last line
+  scopeMode:         'full', // 'full' | 'range'
+  autoAdvance:       false,
+};
 let currentAudio = null;
 let autoAdvanceTimer = null;  // goToVoices 자동 진행 타이머 (goBack 시 취소용)
-let autoAdvance = false;     // 자동 진행 여부
-let countdownTimer = null;   // 자동 진행 타이머
+let countdownTimer = null;    // 자동 진행 타이머
 let scriptVisibilityMode = 'show_all'; // 'show_all' | 'hide_my_lines' | 'hide_all_lines'
 let pendingPdfFile = null;  // PDF 업로드됐지만 아직 분석 안 된 파일
-let rehearsalStartIdx = 0;   // inclusive, 0-based index into parsedScript.lines
-let rehearsalEndIdx = null;  // inclusive, 0-based; null = last line
-let _scopeMode = 'full';     // 'full' | 'range'
 
 function getScopeEnd() {
-  return rehearsalEndIdx ?? (parsedScript ? parsedScript.lines.length - 1 : 0);
+  return appState.rehearsalEndIdx ?? (appState.parsedScript ? appState.parsedScript.lines.length - 1 : 0);
 }
 
 // ── canonical / scoped subset helpers ──────────────────────
 function getCanonicalLines() {
-  return parsedScript?.lines || [];
+  return appState.parsedScript?.lines || [];
 }
 
 function getScopedBounds() {
-  return { start: rehearsalStartIdx, end: getScopeEnd() };
+  return { start: appState.rehearsalStartIdx, end: getScopeEnd() };
 }
 
 function getScopedLines() {
@@ -774,32 +776,45 @@ function _stopPlayback() {
 // 재생 전체 초기화: 정지 + 위치를 범위 시작점으로 리셋
 function resetPlaybackState() {
   _stopPlayback();
-  currentLineIndex = rehearsalStartIdx;
+  appState.currentLineIndex = appState.rehearsalStartIdx;
 }
 
 // ── run-level 상태 초기화 (역할 변경 전용) ────────────────
 // 상태 3층 구조:
-//   script-level : parsedScript                       → 유지
-//   role-level   : userCharacter, voiceAssignments    → selectCharacter()가 직접 관리
+//   script-level : appState.parsedScript                       → 유지
+//   role-level   : appState.userCharacter, appState.voiceAssignments    → selectCharacter()가 직접 관리
 //   run-level    : 아래 항목들 — 역할이 바뀌면 무효화
 function resetRunStateForRoleChange() {
-  _stopPlayback();        // 재생 중이면 즉시 정지
-  audioMap = {};          // 이전 역할 기준 생성 음성 무효화
-  sessionId = null;       // 서버 세션 무효화
-  rehearsalStartIdx = 0;  // 연습 범위 초기화
-  rehearsalEndIdx = null;
-  currentLineIndex = 0;   // 재생 위치 초기화
+  _stopPlayback();
+  appState.audioMap = {};
+  appState.sessionId = null;
+  appState.rehearsalStartIdx = 0;
+  appState.rehearsalEndIdx = null;
+  appState.currentLineIndex = 0;
+}
+
+// 새 대본 로드 시 전체 초기화 — script-level 제외 모두 무효화
+// parsedScript는 호출 측이 직접 설정
+function resetSessionStateForNewScript() {
+  _stopPlayback();
+  appState.userCharacter    = null;
+  appState.voiceAssignments = {};
+  appState.audioMap         = {};
+  appState.sessionId        = null;
+  appState.rehearsalStartIdx = 0;
+  appState.rehearsalEndIdx   = null;
+  appState.currentLineIndex  = 0;
 }
 
 // 세션 복원 데이터를 상태 변수에 일괄 적용
 function _applySessionData(data) {
-  parsedScript      = data.parsed_script;
-  voiceAssignments  = data.voice_assignments || {};
-  sessionId         = data.session_id;
-  audioMap          = data.audio_map || {};
-  userCharacter     = data.user_character || null;
-  rehearsalStartIdx = data.rehearsal_start_idx ?? 0;
-  rehearsalEndIdx   = data.rehearsal_end_idx ?? null;
+  appState.parsedScript      = data.parsed_script;
+  appState.voiceAssignments  = data.voice_assignments || {};
+  appState.sessionId         = data.session_id;
+  appState.audioMap          = data.audio_map || {};
+  appState.userCharacter     = data.user_character || null;
+  appState.rehearsalStartIdx = data.rehearsal_start_idx ?? 0;
+  appState.rehearsalEndIdx   = data.rehearsal_end_idx ?? null;
 }
 
 function shouldMaskLine(line, mode, userChar) {
@@ -813,9 +828,9 @@ function setVisibilityMode(mode) {
   scriptVisibilityMode = mode;
   document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
   document.querySelectorAll(`[data-mode="${mode}"]`).forEach(btn => btn.classList.add('active'));
-  const saved = currentLineIndex;
+  const saved = appState.currentLineIndex;
   buildScriptViewer();
-  currentLineIndex = saved;
+  appState.currentLineIndex = saved;
   updateDisplay();
 }
 
@@ -949,43 +964,42 @@ async function loadSessions() {
 
 // 세션 복원 — 캐릭터 렌더 + 2단계 이동 + toast
 function _renderRestoredSessionPhase(data) {
-  const lineCount = parsedScript?.lines?.length || 0;
-  const availableChars = parsedScript?.characters || [];
+  const lineCount = appState.parsedScript?.lines?.length || 0;
+  const availableChars = appState.parsedScript?.characters || [];
 
   if (data.script_text) {
     document.getElementById('script-input').value = data.script_text;
   }
 
   renderCharacters();
-  if (userCharacter && availableChars.includes(userCharacter)) {
+  if (appState.userCharacter && availableChars.includes(appState.userCharacter)) {
     const card = [...document.querySelectorAll('.char-card')].find(
-      c => c.querySelector('.char-name')?.textContent === userCharacter
+      c => c.querySelector('.char-name')?.textContent === appState.userCharacter
     );
-    if (card) selectCharacter(userCharacter, card);
+    if (card) selectCharacter(appState.userCharacter, card);
   }
 
-  setStep(2);
-  showPhase('characters');
-  const roleHint = userCharacter ? ` (이전 역할: ${userCharacter})` : '';
+  gotoStep(2);
+  const roleHint = appState.userCharacter ? ` (이전 역할: ${appState.userCharacter})` : '';
   const msg = lineCount < 10
     ? `"${data.title || '세션'}" 복원 (경고: 대사 ${lineCount}줄만 있음)`
     : `"${data.title || '세션'}" 복원 완료${roleHint} — 역할을 확인하고 계속하세요.`;
   showToast(msg, lineCount < 10 ? 'warning' : 'success');
 }
 
-async function restoreSession(sessionId) {
+async function restoreSession(sid) {
   try {
-    const res = await fetch(`/api/sessions/${sessionId}`);
+    const res = await fetch(`/api/sessions/${sid}`);
     if (!res.ok) { showToast('세션을 불러올 수 없습니다.', 'error'); return; }
     const data = await res.json();
 
-    _applySessionData(data);  // parsedScript, voiceAssignments, sessionId, audioMap, userCharacter, rehearsalStartIdx, rehearsalEndIdx
+    _applySessionData(data);  // appState.parsedScript, appState.voiceAssignments, appState.sessionId, appState.audioMap, appState.userCharacter, appState.rehearsalStartIdx, appState.rehearsalEndIdx
 
-    const restoredLineCount = parsedScript?.lines?.length || 0;
+    const restoredLineCount = appState.parsedScript?.lines?.length || 0;
     console.log(
       `[Session] 복원 완료 — session=${data.session_id?.slice(0,8)}, lines=${restoredLineCount},` +
-      ` audio=${Object.keys(audioMap).length}, characters=${parsedScript?.characters?.length || 0},` +
-      ` restored_role="${userCharacter}", role_selector=enabled`
+      ` audio=${Object.keys(appState.audioMap).length}, characters=${appState.parsedScript?.characters?.length || 0},` +
+      ` restored_role="${appState.userCharacter}", role_selector=enabled`
     );
     if (restoredLineCount < 10) console.warn('[Session] 복원된 대본이 너무 짧습니다. 대본을 다시 분석해 보세요.');
 
@@ -1004,24 +1018,24 @@ async function deleteSession(sid) {
 }
 
 async function saveCurrentSession() {
-  if (!parsedScript || !sessionId) return;
+  if (!appState.parsedScript || !appState.sessionId) return;
   try {
     await fetch('/api/sessions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        session_id: sessionId,
-        title: parsedScript.title || '제목 없음',
+        session_id: appState.sessionId,
+        title: appState.parsedScript.title || '제목 없음',
         script_text: document.getElementById('script-input').value || '',
-        parsed_script: parsedScript,
-        user_character: userCharacter,
-        voice_assignments: voiceAssignments,
-        audio_map: audioMap,
-        rehearsal_start_idx: rehearsalStartIdx,
-        rehearsal_end_idx: rehearsalEndIdx,
+        parsed_script: appState.parsedScript,
+        user_character: appState.userCharacter,
+        voice_assignments: appState.voiceAssignments,
+        audio_map: appState.audioMap,
+        rehearsal_start_idx: appState.rehearsalStartIdx,
+        rehearsal_end_idx: appState.rehearsalEndIdx,
       }),
     });
-    console.log('[Session] 저장 완료:', sessionId);
+    console.log('[Session] 저장 완료:', appState.sessionId);
   } catch(e) { console.warn('[Session] 저장 실패', e); }
 }
 
@@ -1059,6 +1073,12 @@ function showPhase(phase) {
   document.getElementById(`phase-${phase}`).classList.remove('hidden');
 }
 
+// step 번호와 phase를 STEP_PHASES 기반으로 동시에 전환 — 어긋남 방지
+function gotoStep(n) {
+  setStep(n);
+  showPhase(STEP_PHASES[n]);
+}
+
 // ── 1단계: 대본 파싱 ──────────────────────────────────────
 // PDF 업로드: 파일만 저장, 분석은 parseScript() 호출 시 실행
 function handlePdfUpload(input) {
@@ -1080,21 +1100,19 @@ function handlePdfUpload(input) {
 // ── parse helpers ──────────────────────────────────────────
 // 상태만 적용 (UI 없음)
 function _applyParsedScriptState(data) {
-  parsedScript = data;
-  rehearsalStartIdx = 0;
-  rehearsalEndIdx = null;
+  resetSessionStateForNewScript();
+  appState.parsedScript = data;
 }
 
 // 캐릭터 렌더 + 2단계 이동 + toast (text/pdf 공통)
 function _renderCharactersPhase(lineCount, source) {
   renderCharacters();
-  setStep(2);
-  showPhase('characters');
+  gotoStep(2);
   if (lineCount < 10) {
     showToast(`경고: 대사가 ${lineCount}줄만 추출됐습니다. 파싱을 다시 시도해보세요.`, 'warning');
-  } else if (parsedScript.partial_failure) {
-    const { failed_chunks, recovered_chunks = [], total_chunks } = parsedScript.partial_failure;
-    const nChars = parsedScript.characters.length;
+  } else if (appState.parsedScript.partial_failure) {
+    const { failed_chunks, recovered_chunks = [], total_chunks } = appState.parsedScript.partial_failure;
+    const nChars = appState.parsedScript.characters.length;
     const prefix = source === 'pdf' ? 'PDF 분석 완료 — ' : '';
     if (failed_chunks.length === 0) {
       // 전체 복구 성공 — success toast
@@ -1108,8 +1126,8 @@ function _renderCharactersPhase(lineCount, source) {
     }
   } else {
     const msg = source === 'pdf'
-      ? `PDF 분석 완료! ${parsedScript.characters.length}명의 캐릭터를 발견했습니다.`
-      : `${parsedScript.characters.length}명의 캐릭터를 분석했습니다!`;
+      ? `PDF 분석 완료! ${appState.parsedScript.characters.length}명의 캐릭터를 발견했습니다.`
+      : `${appState.parsedScript.characters.length}명의 캐릭터를 분석했습니다!`;
     showToast(msg, 'success');
   }
 }
@@ -1149,8 +1167,8 @@ async function parseScript() {
     }
     const data = await res.json();
     _applyParsedScriptState(data);
-    const lineCount = parsedScript.lines?.length || 0;
-    console.log(`[Script] 텍스트 분석 완료 — lines=${lineCount}, chars=${parsedScript.characters?.length || 0}`);
+    const lineCount = appState.parsedScript.lines?.length || 0;
+    console.log(`[Script] 텍스트 분석 완료 — lines=${lineCount}, chars=${appState.parsedScript.characters?.length || 0}`);
     if (lineCount < 10) console.warn('[Script] 경고: 분석된 라인이 너무 적습니다. 서버 로그를 확인하세요.');
     _renderCharactersPhase(lineCount, 'text');
   } catch (e) {
@@ -1192,8 +1210,8 @@ async function _parsePdfFile(file) {
     const pdfData = await res.json();
     pendingPdfFile = null;
     _applyParsedScriptState(pdfData);
-    const pdfLineCount = parsedScript.lines?.length || 0;
-    console.log(`[Script] PDF 분석 완료 — lines=${pdfLineCount}, chars=${parsedScript.characters?.length || 0}`);
+    const pdfLineCount = appState.parsedScript.lines?.length || 0;
+    console.log(`[Script] PDF 분석 완료 — lines=${pdfLineCount}, chars=${appState.parsedScript.characters?.length || 0}`);
     if (pdfLineCount < 10) console.warn('[Script] 경고: 분석된 라인이 너무 적습니다. 서버 로그를 확인하세요.');
     _renderCharactersPhase(pdfLineCount, 'pdf');
   } catch (e) {
@@ -1212,13 +1230,13 @@ async function _parsePdfFile(file) {
 // ── 2단계: 캐릭터 선택 ────────────────────────────────────
 function renderCharacters() {
   const titleEl = document.getElementById('script-title');
-  titleEl.textContent = parsedScript.title ? `📖 ${parsedScript.title}` : '';
+  titleEl.textContent = appState.parsedScript.title ? `📖 ${appState.parsedScript.title}` : '';
 
   const grid = document.getElementById('character-grid');
   grid.innerHTML = '';
 
-  parsedScript.characters.forEach(char => {
-    const desc = parsedScript.character_descriptions?.[char] || '';
+  appState.parsedScript.characters.forEach(char => {
+    const desc = appState.parsedScript.character_descriptions?.[char] || '';
     const card = document.createElement('div');
     card.className = 'char-card';
     card.innerHTML = `
@@ -1233,14 +1251,14 @@ function renderCharacters() {
 function selectCharacter(char, card) {
   document.querySelectorAll('.char-card').forEach(c => c.classList.remove('selected'));
   card.classList.add('selected');
-  if (userCharacter !== null && userCharacter !== char) {
+  if (appState.userCharacter !== null && appState.userCharacter !== char) {
     console.log(
-      `[Session] 역할 변경: "${userCharacter}" → "${char}"` +
-      ` — run-level 무효화: audioMap(${Object.keys(audioMap).length}개), sessionId, 범위, 위치`
+      `[Session] 역할 변경: "${appState.userCharacter}" → "${char}"` +
+      ` — run-level 무효화: appState.audioMap(${Object.keys(appState.audioMap).length}개), appState.sessionId, 범위, 위치`
     );
     resetRunStateForRoleChange();
   }
-  userCharacter = char;
+  appState.userCharacter = char;
 
   const info = document.getElementById('selected-char-info');
   info.classList.remove('hidden');
@@ -1251,12 +1269,11 @@ function selectCharacter(char, card) {
 
 // ── 3단계: 목소리 배정 ────────────────────────────────────
 async function goToVoices() {
-  if (!userCharacter) { showToast('역할을 선택해주세요.', 'error'); return; }
-  setStep(3);
-  showPhase('voices');
+  if (!appState.userCharacter) { showToast('역할을 선택해주세요.', 'error'); return; }
+  gotoStep(3);
   await loadVoices();
 
-  const otherChars = parsedScript.characters.filter(c => c !== userCharacter);
+  const otherChars = appState.parsedScript.characters.filter(c => c !== appState.userCharacter);
   if (!otherChars.length) {
     // 1인극 — AI 음성 없음, 바로 4단계
     startGeneration();
@@ -1272,7 +1289,7 @@ async function loadVoices() {
     const res = await fetch('/api/voices');
     if (!res.ok) throw new Error('목소리 목록 불러오기 실패');
     const data = await res.json();
-    availableVoices = data.voices;
+    appState.availableVoices = data.voices;
     renderVoiceTable();
   } catch (e) {
     showToast(`오류: ${e.message}`, 'error');
@@ -1288,13 +1305,13 @@ function renderVoiceTable() {
   const tbody = document.getElementById('voice-table-body');
   tbody.innerHTML = '';
 
-  const otherChars = parsedScript.characters.filter(c => c !== userCharacter);
+  const otherChars = appState.parsedScript.characters.filter(c => c !== appState.userCharacter);
 
   // 기본 목소리 자동 배정 (순환)
-  const defaultVoices = availableVoices.slice(0, 10);
+  const defaultVoices = appState.availableVoices.slice(0, 10);
   otherChars.forEach((char, i) => {
-    if (!voiceAssignments[char] && defaultVoices[i % defaultVoices.length]) {
-      voiceAssignments[char] = defaultVoices[i % defaultVoices.length].voice_id;
+    if (!appState.voiceAssignments[char] && defaultVoices[i % defaultVoices.length]) {
+      appState.voiceAssignments[char] = defaultVoices[i % defaultVoices.length].voice_id;
     }
   });
 
@@ -1302,8 +1319,8 @@ function renderVoiceTable() {
     const tr = document.createElement('tr');
     tr.id = `voice-row-${char.replace(/\s/g,'_')}`;
 
-    const selectOpts = availableVoices.map(v =>
-      `<option value="${v.voice_id}" ${voiceAssignments[char] === v.voice_id ? 'selected' : ''}>
+    const selectOpts = appState.availableVoices.map(v =>
+      `<option value="${v.voice_id}" ${appState.voiceAssignments[char] === v.voice_id ? 'selected' : ''}>
         ${v.name} — ${v.gender} | ${v.description}
       </option>`
     ).join('');
@@ -1313,7 +1330,7 @@ function renderVoiceTable() {
       <td style="color:var(--muted); font-size:0.82rem;">AI 음성</td>
       <td>
         <select id="voice-select-${char.replace(/\s/g,'_')}"
-                onchange="voiceAssignments['${char}'] = this.value; document.getElementById('voice-row-${char.replace(/\s/g,'_')}').classList.remove('voice-confirmed')"
+                onchange="appState.voiceAssignments['${char}'] = this.value; document.getElementById('voice-row-${char.replace(/\s/g,'_')}').classList.remove('voice-confirmed')"
                 style="max-width:260px;">
           ${selectOpts}
         </select>
@@ -1345,13 +1362,13 @@ function renderVoiceTable() {
 }
 
 function getFirstDialogueLine(char) {
-  return (parsedScript?.lines || []).find(
+  return (appState.parsedScript?.lines || []).find(
     l => l.type === 'dialogue' && l.character === char
   ) || null;
 }
 
 async function previewVoice(char) {
-  const vid = voiceAssignments[char];
+  const vid = appState.voiceAssignments[char];
   if (!vid) return;
 
   const btn = document.getElementById(`preview-btn-${char.replace(/\s/g,'_')}`);
@@ -1359,7 +1376,7 @@ async function previewVoice(char) {
 
   const firstLine = getFirstDialogueLine(char);
   const previewText = firstLine?.text || `안녕하세요, 저는 ${char}입니다.`;
-  const desc = parsedScript?.character_descriptions?.[char] || '';
+  const desc = appState.parsedScript?.character_descriptions?.[char] || '';
   const tempSession = 'preview_' + Date.now();
 
   const body = {
@@ -1412,7 +1429,7 @@ async function reAssignVoice(char) {
   try {
     const body = {
       characters: [char],
-      character_descriptions: parsedScript.character_descriptions || {},
+      character_descriptions: appState.parsedScript.character_descriptions || {},
     };
     if (preference) body.user_preferences = { [char]: preference };
 
@@ -1430,7 +1447,7 @@ async function reAssignVoice(char) {
     const data = await res.json();
     const newVoiceId = data.assignments?.[char];
     if (newVoiceId) {
-      voiceAssignments[char] = newVoiceId;
+      appState.voiceAssignments[char] = newVoiceId;
       const sel = document.getElementById(`voice-select-${char.replace(/\s/g,'_')}`);
       if (sel) sel.value = newVoiceId;
       const row = document.getElementById(`voice-row-${char.replace(/\s/g,'_')}`);
@@ -1452,7 +1469,7 @@ async function reAssignVoice(char) {
 // 음성 배정 상태 반영 + dropdown DOM 업데이트 + toast
 function _applyVoiceAssignmentResult(assignments, otherChars) {
   Object.entries(assignments).forEach(([char, voiceId]) => {
-    voiceAssignments[char] = voiceId;
+    appState.voiceAssignments[char] = voiceId;
     const sel = document.getElementById(`voice-select-${char.replace(/\s/g,'_')}`);
     if (sel) sel.value = voiceId;
   });
@@ -1467,7 +1484,7 @@ function _applyVoiceAssignmentResult(assignments, otherChars) {
 }
 
 async function autoAssignVoices() {
-  const otherChars = (parsedScript?.characters || []).filter(c => c !== userCharacter);
+  const otherChars = (appState.parsedScript?.characters || []).filter(c => c !== appState.userCharacter);
   if (!otherChars.length) return true;
 
   console.log(`[VoiceAssign] 시작 — ${otherChars.length}명:`, otherChars);
@@ -1483,7 +1500,7 @@ async function autoAssignVoices() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
         characters: otherChars,
-        character_descriptions: parsedScript.character_descriptions || {},
+        character_descriptions: appState.parsedScript.character_descriptions || {},
       })
     });
     if (!res.ok) {
@@ -1508,10 +1525,10 @@ async function autoAssignVoices() {
 
 // ── 3.5단계: 연습 범위 선택 ───────────────────────────────
 function showScopeSelector() {
-  _scopeMode = 'full';
-  const lines = parsedScript.lines;
+  appState.scopeMode = 'full';
+  const lines = appState.parsedScript.lines;
   const total = lines.length;
-  const aiLines = lines.filter(l => l.type === 'dialogue' && l.character !== userCharacter).length;
+  const aiLines = lines.filter(l => l.type === 'dialogue' && l.character !== appState.userCharacter).length;
   document.getElementById('scope-info').textContent =
     `총 ${total}개 항목 (AI 대사 ${aiLines}줄, 전체 구간 기준)`;
   document.getElementById('scope-start').value = 1;
@@ -1519,12 +1536,11 @@ function showScopeSelector() {
   document.getElementById('scope-end').value = total;
   document.getElementById('scope-end').max = total;
   setScopeMode('full');
-  setStep(4);
-  showPhase('scope');
+  gotoStep(4);
 }
 
 function setScopeMode(mode) {
-  _scopeMode = mode;
+  appState.scopeMode = mode;
   const inputs = document.getElementById('scope-range-inputs');
   if (mode === 'full') {
     document.getElementById('scope-full-btn').className = 'btn btn-primary';
@@ -1539,51 +1555,50 @@ function setScopeMode(mode) {
 }
 
 function updateScopePreview() {
-  if (!parsedScript) return;
-  const lines = parsedScript.lines;
+  if (!appState.parsedScript) return;
+  const lines = appState.parsedScript.lines;
   const startVal = parseInt(document.getElementById('scope-start').value) || 1;
   const endVal = parseInt(document.getElementById('scope-end').value) || lines.length;
   const startIdx = Math.max(0, startVal - 1);
   const endIdx = Math.min(lines.length - 1, endVal - 1);
   const scoped = lines.slice(startIdx, endIdx + 1);
-  const aiCount = scoped.filter(l => l.type === 'dialogue' && l.character !== userCharacter).length;
-  const myCount = scoped.filter(l => l.type === 'dialogue' && l.character === userCharacter).length;
+  const aiCount = scoped.filter(l => l.type === 'dialogue' && l.character !== appState.userCharacter).length;
+  const myCount = scoped.filter(l => l.type === 'dialogue' && l.character === appState.userCharacter).length;
   document.getElementById('scope-preview').textContent =
     `선택 범위: ${startIdx + 1}~${endIdx + 1}번 항목 — AI 대사 ${aiCount}줄, 내 대사 ${myCount}줄`;
 }
 
 function confirmScope() {
-  const lines = parsedScript.lines;
-  if (_scopeMode === 'full') {
-    rehearsalStartIdx = 0;
-    rehearsalEndIdx = null;
+  const lines = appState.parsedScript.lines;
+  if (appState.scopeMode === 'full') {
+    appState.rehearsalStartIdx = 0;
+    appState.rehearsalEndIdx = null;
   } else {
     const startVal = parseInt(document.getElementById('scope-start').value) || 1;
     const endVal = parseInt(document.getElementById('scope-end').value) || lines.length;
-    rehearsalStartIdx = Math.max(0, Math.min(startVal - 1, lines.length - 1));
-    rehearsalEndIdx = Math.max(rehearsalStartIdx, Math.min(endVal - 1, lines.length - 1));
+    appState.rehearsalStartIdx = Math.max(0, Math.min(startVal - 1, lines.length - 1));
+    appState.rehearsalEndIdx = Math.max(appState.rehearsalStartIdx, Math.min(endVal - 1, lines.length - 1));
   }
   startGeneration();
 }
 
 // ── 5단계: 음성 생성 ──────────────────────────────────────
 // 생성 결과 상태 반영 + 진행바 업데이트
-// Remap: server returns 0-based subset indices → original parsedScript indices via scopeStart
+// Remap: server returns 0-based subset indices → original appState.parsedScript indices via scopeStart
 function _applyGenerationResult(data, scopeStart, total) {
-  sessionId = data.session_id;
-  audioMap = {};
+  appState.sessionId = data.session_id;
+  appState.audioMap = {};
   Object.entries(data.audio_map).forEach(([subIdx, url]) => {
-    audioMap[String(scopeStart + parseInt(subIdx))] = url;
+    appState.audioMap[String(scopeStart + parseInt(subIdx))] = url;
   });
-  const generatedCount = Object.keys(audioMap).length;
+  const generatedCount = Object.keys(appState.audioMap).length;
   const pct = total > 0 ? Math.round(generatedCount / total * 100) : 100;
   document.getElementById('gen-progress').style.width = `${pct}%`;
   document.getElementById('gen-status').textContent = `${generatedCount}/${total}개 음성 생성 완료`;
 }
 
 async function startGeneration() {
-  setStep(5);
-  showPhase('generating');
+  gotoStep(5);
 
   const { start: scopeStart, end: scopeEnd } = getScopedBounds();
   const scopedLines = getScopedLines();
@@ -1593,14 +1608,14 @@ async function startGeneration() {
   if (scopedLines.length === 0) {
     console.warn('[Gen] scoped line count is 0 — 범위를 확인하세요');
     showToast('연습 범위 안에 대사가 없습니다. 범위를 확인하세요.', 'error');
-    setStep(4); showPhase('scope'); return;
+    gotoStep(4); return;
   }
   if (scopeStart > canonical.length - 1 || scopeEnd > canonical.length - 1) {
     console.warn(`[Gen] 범위 초과 — canonical length=${canonical.length}, scope=[${scopeStart}..${scopeEnd}]`);
   }
 
   const nonUserLines = scopedLines.filter(
-    l => l.type === 'dialogue' && l.character !== userCharacter
+    l => l.type === 'dialogue' && l.character !== appState.userCharacter
   );
   const total = nonUserLines.length;
 
@@ -1617,9 +1632,9 @@ async function startGeneration() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
         lines: scopedLines,
-        voice_assignments: voiceAssignments,
-        user_character: userCharacter,
-        character_descriptions: parsedScript.character_descriptions || {},
+        voice_assignments: appState.voiceAssignments,
+        user_character: appState.userCharacter,
+        character_descriptions: appState.parsedScript.character_descriptions || {},
       })
     });
 
@@ -1629,22 +1644,18 @@ async function startGeneration() {
 
     await saveCurrentSession();
 
-    setTimeout(() => {
-      setStep(6);
-      startRehearsal();
-    }, 800);
+    setTimeout(() => startRehearsal(), 800);
 
   } catch (e) {
     showToast(`음성 생성 오류: ${e.message}`, 'error');
-    setStep(4);
-    showPhase('scope');
+    gotoStep(4);
   }
 }
 
 // ── 6단계: 연습 ───────────────────────────────────────────
 function buildScriptViewer() {
   const viewer = document.getElementById('script-viewer');
-  if (!viewer || !parsedScript) return;
+  if (!viewer || !appState.parsedScript) return;
   viewer.innerHTML = '';
   getCanonicalLines().forEach((line, i) => {
     if (!isInScope(i)) return;
@@ -1654,8 +1665,8 @@ function buildScriptViewer() {
       div.className = 'script-line direction';
       div.textContent = line.text;
     } else {
-      const isUser = line.character === userCharacter;
-      const masked = shouldMaskLine(line, scriptVisibilityMode, userCharacter);
+      const isUser = line.character === appState.userCharacter;
+      const masked = shouldMaskLine(line, scriptVisibilityMode, appState.userCharacter);
       div.className = 'script-line upcoming';
       div.innerHTML = `
         <div class="line-char-label ${isUser ? 'user-char' : 'other-char'}">
@@ -1669,15 +1680,15 @@ function buildScriptViewer() {
 }
 
 function startRehearsal() {
-  showPhase('rehearsal');
+  gotoStep(6);
 
-  document.getElementById('my-role-label').textContent = userCharacter;
+  document.getElementById('my-role-label').textContent = appState.userCharacter;
 
   buildScriptViewer();
 
-  currentLineIndex = getScopedBounds().start;
+  appState.currentLineIndex = getScopedBounds().start;
   updateDisplay();
-  if (autoAdvance) {
+  if (appState.autoAdvance) {
     setTimeout(() => playCurrentLine(), 600);
   }
 }
@@ -1686,7 +1697,7 @@ function updateDisplay() {
   const lines = getCanonicalLines();
   const { start: scopeStart, end: scopeEnd } = getScopedBounds();
   const scopeLen = scopeEnd - scopeStart + 1;
-  const posInScope = currentLineIndex - scopeStart + 1;
+  const posInScope = appState.currentLineIndex - scopeStart + 1;
 
   document.getElementById('line-counter').textContent =
     `${Math.min(posInScope, scopeLen)} / ${scopeLen}`;
@@ -1696,13 +1707,13 @@ function updateDisplay() {
     const el = document.getElementById(`script-line-${i}`);
     if (!el) return;
     el.classList.remove('current', 'past', 'upcoming');
-    if (i < currentLineIndex) el.classList.add('past');
-    else if (i === currentLineIndex) el.classList.add('current');
+    if (i < appState.currentLineIndex) el.classList.add('past');
+    else if (i === appState.currentLineIndex) el.classList.add('current');
     else el.classList.add('upcoming');
   });
 
   // 현재 대사 박스 업데이트
-  if (currentLineIndex > scopeEnd) {
+  if (appState.currentLineIndex > scopeEnd) {
     document.getElementById('current-box').className = 'current-line-box';
     document.getElementById('current-badge').textContent = '🎉 연습 완료';
     document.getElementById('current-badge').className = 'turn-badge dir';
@@ -1712,7 +1723,7 @@ function updateDisplay() {
     return;
   }
 
-  const line = lines[currentLineIndex];
+  const line = lines[appState.currentLineIndex];
   const box = document.getElementById('current-box');
   const badge = document.getElementById('current-badge');
   const textEl = document.getElementById('current-text');
@@ -1727,39 +1738,39 @@ function updateDisplay() {
     playBtn.textContent = '다음으로 ▶';
     playBtn.disabled = false;
     hintEl.textContent = '';
-  } else if (line.character === userCharacter) {
+  } else if (line.character === appState.userCharacter) {
     box.className = 'current-line-box user-turn';
     badge.className = 'turn-badge user';
-    badge.textContent = `🎤 내 대사 (${userCharacter})`;
-    const maskedUser = shouldMaskLine(line, scriptVisibilityMode, userCharacter);
+    badge.textContent = `🎤 내 대사 (${appState.userCharacter})`;
+    const maskedUser = shouldMaskLine(line, scriptVisibilityMode, appState.userCharacter);
     textEl.textContent = maskedUser ? '••••••' : line.text;
     playBtn.textContent = listeningActive ? '✋ 완료 (수동)' : '✓ 읽었어요 →';
     playBtn.disabled = false;
-    hintEl.textContent = autoAdvance
+    hintEl.textContent = appState.autoAdvance
       ? '대사를 말하세요. 잠시 멈추면 자동으로 넘어갑니다.'
       : '위 대사를 읽은 후 버튼을 누르세요.';
   } else {
     box.className = 'current-line-box';
     badge.className = 'turn-badge ai';
     badge.textContent = `🤖 ${line.character}의 대사`;
-    const maskedAI = shouldMaskLine(line, scriptVisibilityMode, userCharacter);
+    const maskedAI = shouldMaskLine(line, scriptVisibilityMode, appState.userCharacter);
     textEl.textContent = maskedAI ? '••••••' : line.text;
     playBtn.textContent = '▶ 재생';
     playBtn.disabled = false;
 
-    const hasAudio = audioMap[currentLineIndex] != null;
+    const hasAudio = appState.audioMap[appState.currentLineIndex] != null;
     hintEl.textContent = hasAudio ? '재생 버튼을 눌러 AI 음성을 들으세요.' : '(음성 없음) 재생 버튼으로 다음으로 넘어갑니다.';
   }
 
-  document.getElementById('btn-prev').disabled = currentLineIndex <= scopeStart;
-  document.getElementById('btn-next').disabled = currentLineIndex >= scopeEnd;
+  document.getElementById('btn-prev').disabled = appState.currentLineIndex <= scopeStart;
+  document.getElementById('btn-next').disabled = appState.currentLineIndex >= scopeEnd;
 }
 
 // ── 자동 진행 토글 ─────────────────────────────────────────
 function toggleAutoAdvance() {
-  autoAdvance = !autoAdvance;
+  appState.autoAdvance = !appState.autoAdvance;
   const btn = document.getElementById('auto-advance-toggle');
-  if (autoAdvance) {
+  if (appState.autoAdvance) {
     btn.textContent = '🎤 음성 감지 ON';
     btn.style.borderColor = 'var(--success)';
     btn.style.color = 'var(--success)';
@@ -1777,12 +1788,12 @@ function toggleAutoAdvance() {
 }
 
 function autoAdvanceCurrentIfNeeded() {
-  if (!autoAdvance) return;
-  const line = parsedScript.lines[currentLineIndex];
+  if (!appState.autoAdvance) return;
+  const line = getCanonicalLines()[appState.currentLineIndex];
   if (!line) return;
   if (line.type === 'direction') {
     scheduleAutoAdvance(600, '지문');
-  } else if (line.character === userCharacter) {
+  } else if (line.character === appState.userCharacter) {
     setTimeout(() => startListening(), 400);
   }
   // AI 대사는 playCurrentLine 에서 처리
@@ -1866,8 +1877,8 @@ async function startListening() {
 
   } catch (e) {
     showToast('마이크 접근 실패. 타이머로 대체합니다.', 'error');
-    const line = parsedScript?.lines[currentLineIndex];
-    if (line && autoAdvance) scheduleAutoAdvance(getReadingTimeMs(line.text), '내 대사 읽기');
+    const line = appState.parsedScript?.lines[appState.currentLineIndex];
+    if (line && appState.autoAdvance) scheduleAutoAdvance(getReadingTimeMs(line.text), '내 대사 읽기');
   }
 }
 
@@ -1924,31 +1935,31 @@ function setListeningStatus(active) {
     wave.classList.add('listening');
     box.classList.add('listening-turn');
     statusText.textContent = '🎤 듣는 중... (대사를 말하고 잠시 멈추면 자동으로 넘어갑니다)';
-    const line = parsedScript?.lines[currentLineIndex];
-    if (line?.character === userCharacter) playBtn.textContent = '✋ 완료 (수동)';
+    const line = appState.parsedScript?.lines[appState.currentLineIndex];
+    if (line?.character === appState.userCharacter) playBtn.textContent = '✋ 완료 (수동)';
   } else {
     wave.classList.remove('listening');
     box.classList.remove('listening-turn');
     if (!currentAudio) { wave.classList.add('hidden'); statusText.textContent = ''; }
-    const line = parsedScript?.lines[currentLineIndex];
-    if (line?.character === userCharacter) playBtn.textContent = '✓ 읽었어요 →';
+    const line = appState.parsedScript?.lines[appState.currentLineIndex];
+    if (line?.character === appState.userCharacter) playBtn.textContent = '✓ 읽었어요 →';
   }
 }
 
 async function playCurrentLine() {
-  const lines = parsedScript.lines;
-  if (currentLineIndex >= lines.length) return;
+  const lines = getCanonicalLines();
+  if (appState.currentLineIndex >= lines.length) return;
 
-  const line = lines[currentLineIndex];
+  const line = lines[appState.currentLineIndex];
 
   if (line.type === 'direction') {
-    if (autoAdvance) scheduleAutoAdvance(600, '지문');
+    if (appState.autoAdvance) scheduleAutoAdvance(600, '지문');
     else navigate(1);
     return;
   }
 
-  if (line.character === userCharacter) {
-    if (autoAdvance) {
+  if (line.character === appState.userCharacter) {
+    if (appState.autoAdvance) {
       if (listeningActive) {
         // 버튼 수동 누름 → 듣기 중단 후 즉시 진행
         stopListening();
@@ -1964,11 +1975,11 @@ async function playCurrentLine() {
   }
 
   // AI 대사 재생
-  const audioUrl = audioMap[currentLineIndex];
+  const audioUrl = appState.audioMap[appState.currentLineIndex];
   if (!audioUrl) {
-    if (autoAdvance) {
+    if (appState.autoAdvance) {
       const { ms: delay, why } = _dialogueAdvanceDelay(line);
-      console.log(`[Timing] idx=${currentLineIndex} type=dialogue no-audio → ${delay}ms (${why})`);
+      console.log(`[Timing] idx=${appState.currentLineIndex} type=dialogue no-audio → ${delay}ms (${why})`);
       if (delay > 0) scheduleAutoAdvance(delay, '');
       else navigate(1);
     } else {
@@ -1987,9 +1998,9 @@ async function playCurrentLine() {
       setAudioStatus(false, '');
       document.getElementById('btn-play').disabled = false;
       document.getElementById('btn-play').textContent = '▶ 다시 재생';
-      if (autoAdvance) {
+      if (appState.autoAdvance) {
         const { ms: pauseMs, why } = _dialogueAdvanceDelay(line);
-        console.log(`[Timing] idx=${currentLineIndex} type=dialogue after-audio → ${pauseMs}ms (${why})`);
+        console.log(`[Timing] idx=${appState.currentLineIndex} type=dialogue after-audio → ${pauseMs}ms (${why})`);
         if (pauseMs > 0) scheduleAutoAdvance(pauseMs, '다음 대사까지');
         else navigate(1);
       }
@@ -2065,17 +2076,17 @@ function navigate(dir) {
   _stopPlayback();
 
   const { start: scopeStart, end: scopeEnd } = getScopedBounds();
-  const newIdx = currentLineIndex + dir;
+  const newIdx = appState.currentLineIndex + dir;
   if (newIdx < scopeStart || newIdx > scopeEnd) return;
-  currentLineIndex = newIdx;
+  appState.currentLineIndex = newIdx;
   updateDisplay();
 
   // 자동 진행 모드: 다음 라인 자동 처리
-  if (autoAdvance && newIdx <= scopeEnd) {
-    const next = parsedScript.lines[newIdx];
+  if (appState.autoAdvance && newIdx <= scopeEnd) {
+    const next = getCanonicalLines()[newIdx];
     if (next.type === 'direction') {
       scheduleAutoAdvance(700, '지문');
-    } else if (next.character === userCharacter) {
+    } else if (next.character === appState.userCharacter) {
       // 내 차례 → 마이크 시작
       setTimeout(() => startListening(), 400);
     } else {
@@ -2092,7 +2103,7 @@ function restartRehearsal() {
   resetPlaybackState();
   updateDisplay();
   showToast('처음부터 다시 시작합니다.', 'success');
-  if (autoAdvance) {
+  if (appState.autoAdvance) {
     setTimeout(() => playCurrentLine(), 500);
   }
 }
@@ -2115,8 +2126,8 @@ function closeEndRehearsalDialog() {
 function _doEndRehearsal() {
   closeEndRehearsalDialog();
   _stopPlayback();
-  if (autoAdvance) {
-    autoAdvance = false;
+  if (appState.autoAdvance) {
+    appState.autoAdvance = false;
     const toggleBtn = document.getElementById('auto-advance-toggle');
     if (toggleBtn) {
       toggleBtn.textContent = '⏸ 수동 진행';
@@ -2130,8 +2141,7 @@ function _doEndRehearsal() {
 // ── 뒤로 가기 ────────────────────────────────────────────
 function goBack(toStep) {
   _stopPlayback();
-  setStep(toStep);
-  showPhase(STEP_PHASES[toStep]);
+  gotoStep(toStep);
 }
 
 // 페이지 로드 시 저장된 세션 목록 표시
