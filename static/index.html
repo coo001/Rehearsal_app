@@ -1097,6 +1097,55 @@ function handlePdfUpload(input) {
   document.getElementById('script-input').value = '';
 }
 
+// ── API fetch helpers (순수 fetch — UI/상태 없음) ─────────
+async function _apiParseText(script, signal) {
+  const res = await fetch('/api/parse-script', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ script }),
+    signal,
+  });
+  if (!res.ok) {
+    let detail = '파싱 실패';
+    try { detail = (await res.json()).detail || detail; } catch {}
+    throw new Error(detail);
+  }
+  return res.json();
+}
+
+async function _apiParsePdf(formData, signal) {
+  const res = await fetch('/api/parse-pdf', { method: 'POST', body: formData, signal });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || 'PDF 분석 실패');
+  }
+  return res.json();
+}
+
+async function _apiAutoAssignVoices(chars, descriptions) {
+  const res = await fetch('/api/auto-assign-voices', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ characters: chars, character_descriptions: descriptions }),
+  });
+  if (!res.ok) {
+    let detail = '자동 배정 실패';
+    try { detail = (await res.json()).detail || detail; } catch {}
+    throw new Error(detail);
+  }
+  return res.json();
+}
+
+async function _apiGenerateRehearsal(payload) {
+  const res = await fetch('/api/generate-rehearsal', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error('음성 생성 요청 실패');
+  return res.json();
+}
+
 // ── parse helpers ──────────────────────────────────────────
 // 상태만 적용 (UI 없음)
 function _applyParsedScriptState(data) {
@@ -1152,20 +1201,9 @@ async function parseScript() {
 
   try {
     console.time('[parseScript] api');
-    const res = await fetch('/api/parse-script', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ script }),
-      signal: controller.signal,
-    });
+    const data = await _apiParseText(script, controller.signal);
     console.timeEnd('[parseScript] api');
     clearTimeout(timeoutId);
-    if (!res.ok) {
-      let detail = '파싱 실패';
-      try { detail = (await res.json()).detail || detail; } catch {}
-      throw new Error(detail);
-    }
-    const data = await res.json();
     _applyParsedScriptState(data);
     const lineCount = appState.parsedScript.lines?.length || 0;
     console.log(`[Script] 텍스트 분석 완료 — lines=${lineCount}, chars=${appState.parsedScript.characters?.length || 0}`);
@@ -1200,14 +1238,9 @@ async function _parsePdfFile(file) {
 
   try {
     console.time('[parsePdf] api');
-    const res = await fetch('/api/parse-pdf', { method: 'POST', body: formData, signal: controller.signal });
+    const pdfData = await _apiParsePdf(formData, controller.signal);
     console.timeEnd('[parsePdf] api');
     clearTimeout(timeoutId);
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || 'PDF 분석 실패');
-    }
-    const pdfData = await res.json();
     pendingPdfFile = null;
     _applyParsedScriptState(pdfData);
     const pdfLineCount = appState.parsedScript.lines?.length || 0;
@@ -1495,21 +1528,7 @@ async function autoAssignVoices() {
   txt.innerHTML = '<span class="spinner"></span> AI 배정 중...';
 
   try {
-    const res = await fetch('/api/auto-assign-voices', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        characters: otherChars,
-        character_descriptions: appState.parsedScript.character_descriptions || {},
-      })
-    });
-    if (!res.ok) {
-      let detail = '자동 배정 실패';
-      try { detail = (await res.json()).detail || detail; } catch {}
-      console.error('[VoiceAssign] 서버 오류:', res.status, detail);
-      throw new Error(detail);
-    }
-    const data = await res.json();
+    const data = await _apiAutoAssignVoices(otherChars, appState.parsedScript.character_descriptions || {});
     console.log(`[VoiceAssign] 완료 — ${Object.keys(data.assignments || {}).length}/${otherChars.length}명 배정`, data.assignments);
     _applyVoiceAssignmentResult(data.assignments || {}, otherChars);
     return true;
@@ -1627,19 +1646,12 @@ async function startGeneration() {
   document.getElementById('gen-status').textContent = '서버에 요청 중...';
 
   try {
-    const res = await fetch('/api/generate-rehearsal', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        lines: scopedLines,
-        voice_assignments: appState.voiceAssignments,
-        user_character: appState.userCharacter,
-        character_descriptions: appState.parsedScript.character_descriptions || {},
-      })
+    const data = await _apiGenerateRehearsal({
+      lines: scopedLines,
+      voice_assignments: appState.voiceAssignments,
+      user_character: appState.userCharacter,
+      character_descriptions: appState.parsedScript.character_descriptions || {},
     });
-
-    if (!res.ok) throw new Error('음성 생성 요청 실패');
-    const data = await res.json();
     _applyGenerationResult(data, scopeStart, total);
 
     await saveCurrentSession();
