@@ -947,6 +947,32 @@ async function loadSessions() {
   } catch(e) { console.warn('[Session] 목록 로드 실패', e); }
 }
 
+// 세션 복원 — 캐릭터 렌더 + 2단계 이동 + toast
+function _renderRestoredSessionPhase(data) {
+  const lineCount = parsedScript?.lines?.length || 0;
+  const availableChars = parsedScript?.characters || [];
+
+  if (data.script_text) {
+    document.getElementById('script-input').value = data.script_text;
+  }
+
+  renderCharacters();
+  if (userCharacter && availableChars.includes(userCharacter)) {
+    const card = [...document.querySelectorAll('.char-card')].find(
+      c => c.querySelector('.char-name')?.textContent === userCharacter
+    );
+    if (card) selectCharacter(userCharacter, card);
+  }
+
+  setStep(2);
+  showPhase('characters');
+  const roleHint = userCharacter ? ` (이전 역할: ${userCharacter})` : '';
+  const msg = lineCount < 10
+    ? `"${data.title || '세션'}" 복원 (경고: 대사 ${lineCount}줄만 있음)`
+    : `"${data.title || '세션'}" 복원 완료${roleHint} — 역할을 확인하고 계속하세요.`;
+  showToast(msg, lineCount < 10 ? 'warning' : 'success');
+}
+
 async function restoreSession(sessionId) {
   try {
     const res = await fetch(`/api/sessions/${sessionId}`);
@@ -956,38 +982,14 @@ async function restoreSession(sessionId) {
     _applySessionData(data);  // parsedScript, voiceAssignments, sessionId, audioMap, userCharacter, rehearsalStartIdx, rehearsalEndIdx
 
     const restoredLineCount = parsedScript?.lines?.length || 0;
-    const availableChars = parsedScript?.characters || [];
     console.log(
       `[Session] 복원 완료 — session=${data.session_id?.slice(0,8)}, lines=${restoredLineCount},` +
-      ` audio=${Object.keys(audioMap).length}, characters=${availableChars.length},` +
+      ` audio=${Object.keys(audioMap).length}, characters=${parsedScript?.characters?.length || 0},` +
       ` restored_role="${userCharacter}", role_selector=enabled`
     );
-    if (restoredLineCount < 10) {
-      console.warn('[Session] 복원된 대본이 너무 짧습니다. 대본을 다시 분석해 보세요.');
-    }
+    if (restoredLineCount < 10) console.warn('[Session] 복원된 대본이 너무 짧습니다. 대본을 다시 분석해 보세요.');
 
-    // script textarea 복원
-    if (data.script_text) {
-      document.getElementById('script-input').value = data.script_text;
-    }
-
-    // 캐릭터 목록 렌더링 후 이전 역할을 기본값으로 pre-select (잠금 아님)
-    renderCharacters();
-    if (userCharacter && availableChars.includes(userCharacter)) {
-      const card = [...document.querySelectorAll('.char-card')].find(
-        c => c.querySelector('.char-name')?.textContent === userCharacter
-      );
-      if (card) selectCharacter(userCharacter, card);
-    }
-
-    // 역할 선택 화면으로 이동 — 사용자가 역할을 확인/변경 후 진행 가능
-    setStep(2);
-    showPhase('characters');
-    const restoredRoleHint = userCharacter ? ` (이전 역할: ${userCharacter})` : '';
-    const restoreMsg = restoredLineCount < 10
-      ? `"${data.title || '세션'}" 복원 (경고: 대사 ${restoredLineCount}줄만 있음)`
-      : `"${data.title || '세션'}" 복원 완료${restoredRoleHint} — 역할을 확인하고 계속하세요.`;
-    showToast(restoreMsg, restoredLineCount < 10 ? 'warning' : 'success');
+    _renderRestoredSessionPhase(data);
   } catch(e) {
     showToast('세션 복원 중 오류가 발생했습니다.', 'error');
     console.error('[Session] 복원 실패', e);
@@ -1075,6 +1077,43 @@ function handlePdfUpload(input) {
   document.getElementById('script-input').value = '';
 }
 
+// ── parse helpers ──────────────────────────────────────────
+// 상태만 적용 (UI 없음)
+function _applyParsedScriptState(data) {
+  parsedScript = data;
+  rehearsalStartIdx = 0;
+  rehearsalEndIdx = null;
+}
+
+// 캐릭터 렌더 + 2단계 이동 + toast (text/pdf 공통)
+function _renderCharactersPhase(lineCount, source) {
+  renderCharacters();
+  setStep(2);
+  showPhase('characters');
+  if (lineCount < 10) {
+    showToast(`경고: 대사가 ${lineCount}줄만 추출됐습니다. 파싱을 다시 시도해보세요.`, 'warning');
+  } else if (parsedScript.partial_failure) {
+    const { failed_chunks, recovered_chunks = [], total_chunks } = parsedScript.partial_failure;
+    const nChars = parsedScript.characters.length;
+    const prefix = source === 'pdf' ? 'PDF 분석 완료 — ' : '';
+    if (failed_chunks.length === 0) {
+      // 전체 복구 성공 — success toast
+      showToast(`${prefix}${nChars}명 분석 완료 (${recovered_chunks.length}개 구간 자동 복구됨)`, 'success');
+    } else if (recovered_chunks.length > 0) {
+      // 일부 복구 + 일부 실패 — warning
+      showToast(`${prefix}${nChars}명 분석 완료 (복구 ${recovered_chunks.length}개, 실패 ${failed_chunks.length}/${total_chunks}구간)`, 'warning');
+    } else {
+      // 복구 없이 실패만 — warning
+      showToast(`${prefix}${nChars}명 분석 완료 (일부 구간 실패: ${failed_chunks.length}/${total_chunks} 청크)`, 'warning');
+    }
+  } else {
+    const msg = source === 'pdf'
+      ? `PDF 분석 완료! ${parsedScript.characters.length}명의 캐릭터를 발견했습니다.`
+      : `${parsedScript.characters.length}명의 캐릭터를 분석했습니다!`;
+    showToast(msg, 'success');
+  }
+}
+
 async function parseScript() {
   // PDF 대기 중이면 PDF 분석 경로로 분기
   if (pendingPdfFile) {
@@ -1108,23 +1147,12 @@ async function parseScript() {
       try { detail = (await res.json()).detail || detail; } catch {}
       throw new Error(detail);
     }
-    parsedScript = await res.json();
-    rehearsalStartIdx = 0;
-    rehearsalEndIdx = null;
-    const textLineCount = parsedScript.lines?.length || 0;
-    console.log(`[Script] 텍스트 분석 완료 — lines=${textLineCount}, chars=${parsedScript.characters?.length || 0}`);
-    if (textLineCount < 10) console.warn('[Script] 경고: 분석된 라인이 너무 적습니다. 서버 로그를 확인하세요.');
-    renderCharacters();
-    setStep(2);
-    showPhase('characters');
-    if (textLineCount < 10) {
-      showToast(`경고: 대사가 ${textLineCount}줄만 추출됐습니다. 파싱을 다시 시도해보세요.`, 'warning');
-    } else if (parsedScript.partial_failure) {
-      const { failed_chunks, total_chunks } = parsedScript.partial_failure;
-      showToast(`${parsedScript.characters.length}명 분석 완료 (일부 구간 실패: ${failed_chunks.length}/${total_chunks} 청크)`, 'warning');
-    } else {
-      showToast(`${parsedScript.characters.length}명의 캐릭터를 분석했습니다!`, 'success');
-    }
+    const data = await res.json();
+    _applyParsedScriptState(data);
+    const lineCount = parsedScript.lines?.length || 0;
+    console.log(`[Script] 텍스트 분석 완료 — lines=${lineCount}, chars=${parsedScript.characters?.length || 0}`);
+    if (lineCount < 10) console.warn('[Script] 경고: 분석된 라인이 너무 적습니다. 서버 로그를 확인하세요.');
+    _renderCharactersPhase(lineCount, 'text');
   } catch (e) {
     clearTimeout(timeoutId);
     const msg = e.name === 'AbortError'
@@ -1161,24 +1189,13 @@ async function _parsePdfFile(file) {
       const err = await res.json();
       throw new Error(err.detail || 'PDF 분석 실패');
     }
-    parsedScript = await res.json();
+    const pdfData = await res.json();
     pendingPdfFile = null;
-    rehearsalStartIdx = 0;
-    rehearsalEndIdx = null;
+    _applyParsedScriptState(pdfData);
     const pdfLineCount = parsedScript.lines?.length || 0;
     console.log(`[Script] PDF 분석 완료 — lines=${pdfLineCount}, chars=${parsedScript.characters?.length || 0}`);
     if (pdfLineCount < 10) console.warn('[Script] 경고: 분석된 라인이 너무 적습니다. 서버 로그를 확인하세요.');
-    renderCharacters();
-    setStep(2);
-    showPhase('characters');
-    if (pdfLineCount < 10) {
-      showToast(`경고: 대사가 ${pdfLineCount}줄만 추출됐습니다. 파싱을 다시 시도해보세요.`, 'warning');
-    } else if (parsedScript.partial_failure) {
-      const { failed_chunks, total_chunks } = parsedScript.partial_failure;
-      showToast(`PDF 분석 완료 — ${parsedScript.characters.length}명 (일부 구간 실패: ${failed_chunks.length}/${total_chunks} 청크)`, 'warning');
-    } else {
-      showToast(`PDF 분석 완료! ${parsedScript.characters.length}명의 캐릭터를 발견했습니다.`, 'success');
-    }
+    _renderCharactersPhase(pdfLineCount, 'pdf');
   } catch (e) {
     clearTimeout(timeoutId);
     const msg = e.name === 'AbortError'
@@ -1432,6 +1449,23 @@ async function reAssignVoice(char) {
 
 // ── AI 자동 목소리 배정 ───────────────────────────────────
 // 성공 시 true, 실패 시 false 반환 (goToVoices 자동 진행 판단용)
+// 음성 배정 상태 반영 + dropdown DOM 업데이트 + toast
+function _applyVoiceAssignmentResult(assignments, otherChars) {
+  Object.entries(assignments).forEach(([char, voiceId]) => {
+    voiceAssignments[char] = voiceId;
+    const sel = document.getElementById(`voice-select-${char.replace(/\s/g,'_')}`);
+    if (sel) sel.value = voiceId;
+  });
+  const assigned = Object.keys(assignments).length;
+  if (assigned === 0) {
+    showToast('자동 배정: 유효한 음성을 찾지 못했습니다. 직접 선택해 주세요.', 'warning');
+  } else if (assigned < otherChars.length) {
+    showToast(`자동 배정 완료 (${assigned}/${otherChars.length}명). 나머지는 직접 선택해 주세요.`, 'warning');
+  } else {
+    showToast('AI가 캐릭터에 맞는 목소리를 배정했습니다!', 'success');
+  }
+}
+
 async function autoAssignVoices() {
   const otherChars = (parsedScript?.characters || []).filter(c => c !== userCharacter);
   if (!otherChars.length) return true;
@@ -1459,22 +1493,8 @@ async function autoAssignVoices() {
       throw new Error(detail);
     }
     const data = await res.json();
-    const assigned = Object.keys(data.assignments || {}).length;
-    console.log(`[VoiceAssign] 완료 — ${assigned}/${otherChars.length}명 배정`, data.assignments);
-
-    Object.entries(data.assignments || {}).forEach(([char, voiceId]) => {
-      voiceAssignments[char] = voiceId;
-      const sel = document.getElementById(`voice-select-${char.replace(/\s/g,'_')}`);
-      if (sel) sel.value = voiceId;
-    });
-
-    if (assigned === 0) {
-      showToast('자동 배정: 유효한 음성을 찾지 못했습니다. 직접 선택해 주세요.', 'warning');
-    } else if (assigned < otherChars.length) {
-      showToast(`자동 배정 완료 (${assigned}/${otherChars.length}명). 나머지는 직접 선택해 주세요.`, 'warning');
-    } else {
-      showToast('AI가 캐릭터에 맞는 목소리를 배정했습니다!', 'success');
-    }
+    console.log(`[VoiceAssign] 완료 — ${Object.keys(data.assignments || {}).length}/${otherChars.length}명 배정`, data.assignments);
+    _applyVoiceAssignmentResult(data.assignments || {}, otherChars);
     return true;
   } catch (e) {
     console.error('[VoiceAssign] 오류:', e);
@@ -1547,6 +1567,20 @@ function confirmScope() {
 }
 
 // ── 5단계: 음성 생성 ──────────────────────────────────────
+// 생성 결과 상태 반영 + 진행바 업데이트
+// Remap: server returns 0-based subset indices → original parsedScript indices via scopeStart
+function _applyGenerationResult(data, scopeStart, total) {
+  sessionId = data.session_id;
+  audioMap = {};
+  Object.entries(data.audio_map).forEach(([subIdx, url]) => {
+    audioMap[String(scopeStart + parseInt(subIdx))] = url;
+  });
+  const generatedCount = Object.keys(audioMap).length;
+  const pct = total > 0 ? Math.round(generatedCount / total * 100) : 100;
+  document.getElementById('gen-progress').style.width = `${pct}%`;
+  document.getElementById('gen-status').textContent = `${generatedCount}/${total}개 음성 생성 완료`;
+}
+
 async function startGeneration() {
   setStep(5);
   showPhase('generating');
@@ -1575,9 +1609,7 @@ async function startGeneration() {
     return;
   }
 
-  const statusEl = document.getElementById('gen-status');
-  const progressEl = document.getElementById('gen-progress');
-  statusEl.textContent = '서버에 요청 중...';
+  document.getElementById('gen-status').textContent = '서버에 요청 중...';
 
   try {
     const res = await fetch('/api/generate-rehearsal', {
@@ -1593,19 +1625,7 @@ async function startGeneration() {
 
     if (!res.ok) throw new Error('음성 생성 요청 실패');
     const data = await res.json();
-    sessionId = data.session_id;
-
-    // Remap server indices (0-based within scopedLines) → original parsedScript indices
-    audioMap = {};
-    Object.entries(data.audio_map).forEach(([subIdx, url]) => {
-      const originalIdx = scopeStart + parseInt(subIdx);
-      audioMap[String(originalIdx)] = url;
-    });
-
-    const generatedCount = Object.keys(audioMap).length;
-    const pct = total > 0 ? Math.round(generatedCount / total * 100) : 100;
-    progressEl.style.width = `${pct}%`;
-    statusEl.textContent = `${generatedCount}/${total}개 음성 생성 완료`;
+    _applyGenerationResult(data, scopeStart, total);
 
     await saveCurrentSession();
 

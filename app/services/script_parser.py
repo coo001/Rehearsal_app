@@ -36,6 +36,9 @@ MAX_TOKENS = 6_000
 # 병렬 청크 처리 워커 수 — API rate limit 여유 있게 보수적으로 설정
 MAX_WORKERS = 4
 
+# JSON 오류 청크 fallback 재분할 크기 — 정상 경로 성능 유지, 실패 시에만 적용
+FALLBACK_CHUNK_SIZE = CHUNK_SIZE // 2  # 2_000자
+
 # PDF direct parse 결과 sanity check: 이 값 미만이면 parse 불완전으로 판단 → fallback
 # 연극 대본 기준 최소 2줄/페이지는 매우 보수적 하한 (false positive 극소화)
 # 5페이지 이상 PDF에만 적용 (짧은 연습 스크립트 false positive 방지)
@@ -231,15 +234,21 @@ def parse_script(script_text: str) -> dict:
     t = time.time()
     chunk_results: dict[int, dict] = {}
     failed_chunks: list[int] = []
+    recovered_chunks: list[int] = []   # fallback으로 복구된 청크 번호 (1-based)
+
+    def _collect(result: dict | None, chunk_1based: int, chunk_0based: int) -> None:
+        """청크 결과를 chunk_results / failed_chunks / recovered_chunks에 분류."""
+        if result is None:
+            failed_chunks.append(chunk_1based)
+        else:
+            if result.pop("_recovered_by_fallback", False):
+                recovered_chunks.append(chunk_1based)
+            chunk_results[chunk_0based] = result
 
     # Step 1: 청크 0 선파싱 (등장인물 섹션 포함 가능성 높음)
     first_result = _parse_chunk_with_retry(chunks[0], 0, len(chunks))
-    if first_result is not None:
-        chunk_results[0] = first_result
-        initial_chars = first_result.get("characters") or []
-    else:
-        failed_chunks.append(1)
-        initial_chars = []
+    _collect(first_result, 1, 0)
+    initial_chars = (chunk_results[0].get("characters") or []) if 0 in chunk_results else []
     if initial_chars:
         print(f"[Parser] 초기 캐릭터 추출: {initial_chars}")
 
@@ -252,13 +261,14 @@ def parse_script(script_text: str) -> dict:
             }
             for future in as_completed(future_to_idx):
                 i = future_to_idx[future]
-                result = future.result()
-                if result is not None:
-                    chunk_results[i] = result
-                else:
-                    failed_chunks.append(i + 1)
+                _collect(future.result(), i + 1, i)
 
-    print(f"[Parser] chunk parse (청크0 직렬 + 나머지 {MAX_WORKERS}workers 병렬): {time.time()-t:.1f}s")
+    n_total = len(chunks)
+    n_ok = len(chunk_results) - len(recovered_chunks)
+    print(
+        f"[Parser] chunk parse 완료 ({time.time()-t:.1f}s) — "
+        f"전체 {n_total}청크: 정상 {n_ok}, 복구(fallback) {len(recovered_chunks)}, 실패 {len(failed_chunks)}"
+    )
 
     # 인덱스 순 정렬 후 병합
     results = [chunk_results[i] for i in sorted(chunk_results.keys())]
@@ -277,15 +287,16 @@ def parse_script(script_text: str) -> dict:
     alias_map = build_alias_map(merged.get("characters") or [])
     merged = remap_result(merged, alias_map)
 
-    if failed_chunks:
+    if failed_chunks or recovered_chunks:
         merged["partial_failure"] = {
             "failed_chunks": failed_chunks,
+            "recovered_chunks": recovered_chunks,
             "total_chunks": len(chunks),
         }
-        print(
-            f"[Parser] 부분 실패: {len(failed_chunks)}/{len(chunks)} 청크 실패 "
-            f"(실패 청크: {failed_chunks})"
-        )
+        if failed_chunks:
+            print(f"[Parser] 부분 실패: {len(failed_chunks)}/{len(chunks)} 청크 실패 (청크: {failed_chunks})")
+        if recovered_chunks:
+            print(f"[Parser] fallback 복구: {len(recovered_chunks)}개 청크 복구 성공 (청크: {recovered_chunks})")
 
     print(
         f"[Parser] 병합 완료 - 캐릭터 {len(merged['characters'])}명, "
@@ -307,6 +318,56 @@ def parse_script(script_text: str) -> dict:
 
 # ── 내부 헬퍼 ──────────────────────────────────────────────
 
+def _classify_json_failure(raw: str, input_len: int, finish_reason: str, e: json.JSONDecodeError) -> str:
+    """JSON 파싱 실패 원인을 분류하고 진단 로그를 출력한다.
+
+    분류 레이블:
+      truncation        — finish_reason='length' → 출력 토큰 한도 초과로 잘림
+      unterminated_str  — JSONDecodeError 메시지에 'unterminated string' 포함
+      fence_leaked      — ``` fence 마커가 raw에 남아있음
+      commentary_prefix — raw가 { 이외 문자로 시작 (설명문 혼입)
+      no_closing_brace  — raw에 } 없음 (완전한 JSON 객체 미완성)
+      empty_response    — raw가 비어있음
+      malformed_json    — 위 분류에 해당하지 않는 일반 파싱 오류
+    """
+    err_lower = str(e).lower()
+    stripped = raw.lstrip()
+
+    has_fence          = "```" in raw
+    has_closing_brace  = "}" in raw
+    is_length_cut      = finish_reason == "length"
+    unterminated       = "unterminated string" in err_lower
+    commentary_prefix  = bool(stripped) and stripped[0] not in ('{', '[', '"')
+
+    if is_length_cut:
+        label = "truncation"
+    elif unterminated:
+        label = "unterminated_str"
+    elif has_fence:
+        label = "fence_leaked"
+    elif commentary_prefix:
+        label = "commentary_prefix"
+    elif not has_closing_brace:
+        label = "no_closing_brace"
+    elif not stripped:
+        label = "empty_response"
+    else:
+        label = "malformed_json"
+
+    print(
+        f"[Parser] JSON 실패 분류: [{label}]\n"
+        f"  finish_reason  : {finish_reason!r}\n"
+        f"  input_length   : {input_len}자\n"
+        f"  raw_length     : {len(raw)}자\n"
+        f"  has_fence      : {has_fence}\n"
+        f"  has_closing_}}  : {has_closing_brace}\n"
+        f"  raw_head       : {raw[:120]!r}\n"
+        f"  raw_tail       : {raw[-80:]!r}\n"
+        f"  json_error     : {e}"
+    )
+    return label
+
+
 def _parse_single(text: str, known_characters: list[str] | None = None) -> dict:
     """단일 텍스트를 GPT-4o 1회 호출로 구조적 파싱 (actor analysis 없음).
 
@@ -314,7 +375,7 @@ def _parse_single(text: str, known_characters: list[str] | None = None) -> dict:
       전달 시 "이 이름들로 시작하는 줄을 dialogue로 처리하세요" 지시를 user 메시지 앞에 추가.
       한국어 '화자명 + 공백 + 대사' 형식 대본에서 후속 청크 오분류 방지.
     finish_reason='length': 출력 토큰 한도 초과 → JSON 잘림 → JSONDecodeError 가능성 높음.
-    JSON 파싱 실패 시 LLM 원문 앞 300자를 로그에 남겨 원인 파악을 돕는다.
+    JSON 파싱 실패 시 _classify_json_failure()로 원인을 분류하고 exception에 attach해서 re-raise.
     """
     user_content = f"다음 대본을 분석해주세요:\n\n{text}"
     if known_characters:
@@ -345,23 +406,75 @@ def _parse_single(text: str, known_characters: list[str] | None = None) -> dict:
             f"(입력 {len(text)}자) - JSON이 중간에 잘렸을 수 있음"
         )
 
+    # PDF direct path와 동일한 safe preprocessing (fence 제거 + 선행 텍스트 제거)
+    raw_original_len = len(raw)
+    raw = _strip_json_fences(raw)
+    if len(raw) != raw_original_len:
+        print(f"[Parser] preprocessing: {raw_original_len}자 → {len(raw)}자 (fence/선행텍스트 제거)")
+
     try:
         return json.loads(raw)
     except json.JSONDecodeError as e:
-        print(
-            f"[Parser] JSONDecodeError - finish_reason='{finish_reason}', "
-            f"입력 {len(text)}자\n"
-            f"[Parser]    LLM 응답 원문 (앞 300자): {raw[:300]!r}"
-        )
+        label = _classify_json_failure(raw, len(text), finish_reason, e)
+        e.classification = label  # type: ignore[attr-defined]
         raise
 
+
+
+def _split_chunk_in_half(text: str) -> tuple[str, str]:
+    """청크를 중간점에서 가장 가까운 빈 줄 경계로 2분할.
+
+    빈 줄 없으면 단순 줄 경계, 그것도 없으면 단순 글자 중간점으로 fallback.
+    """
+    mid = len(text) // 2
+    split_pos = text.rfind('\n\n', 0, mid)
+    if split_pos == -1:
+        split_pos = text.rfind('\n', 0, mid)
+    if split_pos == -1:
+        split_pos = mid
+    return text[:split_pos].strip(), text[split_pos:].strip()
+
+
+def _parse_chunk_json_fallback(chunk: str, idx: int, total: int, known_characters: list[str] | None) -> dict | None:
+    """JSON 오류 청크를 FALLBACK_CHUNK_SIZE로 재분할해 재시도. 성공분만 병합해 반환.
+
+    정상 경로는 CHUNK_SIZE(4000자) 사용. 이 경로는 JSON 오류 시에만 호출된다.
+    분할은 1회로 제한 (재귀 없음).
+    """
+    subchunks = _split_into_chunks(chunk, max_chars=FALLBACK_CHUNK_SIZE)
+    print(
+        f"[Parser] 청크 {idx+1}/{total} fallback 재분할: "
+        f"{len(chunk)}자(원본 {CHUNK_SIZE}자 기준) → {len(subchunks)}개({FALLBACK_CHUNK_SIZE}자 기준)"
+    )
+    results = []
+    n_sub = len(subchunks)
+    for part_num, part in enumerate(subchunks, 1):
+        if not part:
+            continue
+        try:
+            res = _parse_single(part, known_characters=known_characters)
+            n = len(res.get("lines") or [])
+            print(f"[Parser] 청크 {idx+1}/{total} subchunk {part_num}/{n_sub} 성공 — lines={n}")
+            results.append(res)
+        except Exception as sub_e:
+            print(f"[Parser] 청크 {idx+1}/{total} subchunk {part_num}/{n_sub} 실패: {sub_e}")
+
+    if not results:
+        print(f"[Parser] 청크 {idx+1}/{total} subchunk 모두 실패 → 폐기")
+        return None
+
+    out = results[0] if len(results) == 1 else _merge_results(results)
+    n = len(out.get("lines") or [])
+    print(f"[Parser] 청크 {idx+1}/{total} subchunk {len(results)}/{n_sub}개 복구 완료 — lines={n}")
+    out["_recovered_by_fallback"] = True  # parse_script()에서 recovered_chunks 집계용 sentinel
+    return out
 
 
 def _parse_chunk_with_retry(chunk: str, idx: int, total: int, known_characters: list[str] | None = None) -> dict | None:
     """단일 청크를 파싱한다. 실패 시 1회 재시도. None 반환 시 실패.
 
     known_characters: 앞 청크에서 추출한 캐릭터 이름. _parse_single()로 전달.
-    JSONDecodeError는 같은 입력으로 재시도해도 동일한 결과 → 재시도 없이 즉시 실패.
+    JSONDecodeError: 같은 입력 재시도 대신 2분할 subchunk fallback 1회 시도.
     """
     t = time.time()
     for attempt in range(2):
@@ -372,8 +485,9 @@ def _parse_chunk_with_retry(chunk: str, idx: int, total: int, known_characters: 
             print(f"[Parser] 청크 {idx+1}/{total} 완료 ({time.time()-t:.1f}s) — lines={n_lines}, chars={n_chars}")
             return result
         except json.JSONDecodeError as e:
-            print(f"[Parser] 청크 {idx+1}/{total} JSON 오류 (재시도 없음): {e}")
-            return None
+            label = getattr(e, "classification", "unknown")
+            print(f"[Parser] 청크 {idx+1}/{total} JSON 오류 [{label}] → subchunk 분할 재시도")
+            return _parse_chunk_json_fallback(chunk, idx, total, known_characters)
         except Exception as e:
             if attempt == 0:
                 print(f"[Parser] 청크 {idx+1}/{total} 실패 (재시도 중): {e}")
