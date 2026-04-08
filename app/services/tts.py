@@ -22,9 +22,11 @@ def generate_tts_file(
     line: dict | None = None,
 ) -> None:
     """TTS_PROVIDER에 따라 OpenAI 또는 ElevenLabs로 음성 생성 후 mp3 저장."""
+    text_original = text
     if TTS_PROVIDER == "elevenlabs":
         text = format_text_for_elevenlabs(text, line)
     tts = build_tts_input(text, instructions, intensity)
+    _log_tts_preview(TTS_PROVIDER, voice_id, text_original, tts, line)
     if TTS_PROVIDER == "elevenlabs":
         _generate_elevenlabs(voice_id, tts.cleaned_text, tts.instructions, audio_path, tts.intensity, tts.speech_mode)
     else:
@@ -48,6 +50,40 @@ def _log_tts_input(
         f"  instructions: {instructions[:120]!r}{'...' if len(instructions) > 120 else ''}\n"
         f"  intensity={intensity} mode={speech_mode} stability={stability} style={style}"
     )
+
+
+def _log_tts_preview(
+    provider: str,
+    voice_id: str,
+    text_original: str,
+    tts: "TtsInput",
+    line: dict | None,
+) -> None:
+    """provider 호출 직전 통합 preview 로그.
+
+    text_original과 최종 cleaned_text가 다르면 ElevenLabs 포맷팅 차이를 함께 출력.
+    API key 등 민감값은 포함하지 않음.
+    """
+    norm  = ((line or {}).get("normalization_hints") or "").strip()
+    pron  = ((line or {}).get("pronunciation_hints") or "").strip()
+    deliv = ((line or {}).get("delivery_mode") or "").strip()
+    text_changed = text_original.strip() != tts.cleaned_text.strip()
+
+    rows = [
+        f"[TTS:preview] {provider} · voice={voice_id} · intensity={tts.intensity} · mode={tts.speech_mode}",
+        f"  text      : {tts.cleaned_text[:80]!r}{'…' if len(tts.cleaned_text) > 80 else ''}",
+    ]
+    if text_changed:
+        rows.append(
+            f"  text_orig : {text_original[:60]!r}{'…' if len(text_original) > 60 else ''}  ← formatted"
+        )
+    rows += [
+        f"  instruct  : {tts.instructions[:120]!r}{'…' if len(tts.instructions) > 120 else ''}",
+        f"  delivery  : {deliv or '-'}",
+        f"  norm_hints: {norm[:80] or '-'}",
+        f"  pron_hints: {pron[:80] or '-'}",
+    ]
+    print("\n".join(rows))
 
 
 def _generate_openai(voice_id: str, text: str, instructions: str, audio_path: Path) -> None:

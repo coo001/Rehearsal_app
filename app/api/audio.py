@@ -81,6 +81,8 @@ async def generate_rehearsal(req: GenerateRehearsalRequest):
                 f"\n  subtext    : {line.get('subtext') or '-'}"
                 f"\n  speech_act : {line.get('speech_act') or '-'}"
                 f"\n  ending     : {line.get('ending_shape') or '-'}"
+                f"\n  norm_hints : {(line.get('normalization_hints') or '-')[:60]}"
+                f"\n  pron_hints : {(line.get('pronunciation_hints') or '-')[:60]}"
                 f"\n  prompt     : {instructions!r}"
             )
             generate_tts_file(voice_id, line["text"], instructions, audio_path, intensity=line.get("intensity", 2), line=line)
