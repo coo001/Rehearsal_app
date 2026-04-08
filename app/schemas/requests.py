@@ -39,6 +39,9 @@ class SingleLineRequest(BaseModel):
     ending_shape: Optional[str] = None
     delivery_mode: Optional[str] = None
     avoid: Optional[str] = None
+    # TTS 발음/정규화 힌트 (ElevenLabs 전용 텍스트 포맷팅에 사용)
+    pronunciation_hints: Optional[str] = None
+    normalization_hints: Optional[str] = None
     # 하위 호환: 구형 단일 emotion 문자열
     emotion: Optional[str] = None
 

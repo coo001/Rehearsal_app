@@ -19,8 +19,11 @@ def generate_tts_file(
     instructions: str,
     audio_path: Path,
     intensity: int = 2,
+    line: dict | None = None,
 ) -> None:
     """TTS_PROVIDER에 따라 OpenAI 또는 ElevenLabs로 음성 생성 후 mp3 저장."""
+    if TTS_PROVIDER == "elevenlabs":
+        text = format_text_for_elevenlabs(text, line)
     tts = build_tts_input(text, instructions, intensity)
     if TTS_PROVIDER == "elevenlabs":
         _generate_elevenlabs(voice_id, tts.cleaned_text, tts.instructions, audio_path, tts.intensity, tts.speech_mode)
@@ -57,6 +60,55 @@ def _generate_openai(voice_id: str, text: str, instructions: str, audio_path: Pa
         response_format="mp3",
     )
     tts_response.stream_to_file(str(audio_path))
+
+
+def _parse_hint_rules(hints: str) -> list[tuple[str, str]]:
+    """hints 문자열에서 (원문, 치환형) 쌍 목록을 파싱한다.
+
+    지원 형식: "원문 → '변환형'" — 따옴표는 선택적, " / " 또는 줄바꿈으로 구분.
+    예: "2014년 → '이천십사 년'" / "3% → '삼 퍼센트'" / "Dr. → '닥터'"
+    """
+    import re
+    rules: list[tuple[str, str]] = []
+    for seg in re.split(r"\s*/\s*|\n", hints):
+        seg = seg.strip().strip("\"'")
+        if "→" not in seg:
+            continue
+        src_raw, _, dst_raw = seg.partition("→")
+        src = src_raw.strip().strip("\"'")
+        dst = dst_raw.strip().strip("\"'「」""''")
+        # trailing particles like "로", "으로 읽기" 제거
+        dst = re.sub(r"\s*(?:로|으로)(?:\s+읽기)?$", "", dst).strip()
+        if src and dst and src != dst:
+            rules.append((src, dst))
+    return rules
+
+
+def format_text_for_elevenlabs(text: str, line: dict | None = None) -> str:
+    """ElevenLabs 전용 텍스트 포맷팅. _normalize_tts_text 실행 전에 적용한다.
+
+    1. Korean pause markers → ElevenLabs가 인식하는 자연 구두점
+         (사이)/(pause)/(beat) → ','  (짧은 쉼)
+         (잠시)/(뜸)/(멈춤)   → '...' (긴 쉼)
+    2. normalization_hints — 숫자/약어/외래어 → 읽기형 치환
+    3. pronunciation_hints — 발음 주의 단어 → 표기형 치환
+    """
+    import re
+    text = re.sub(r"\((?:사이|pause|beat)\)", ",", text)
+    text = re.sub(r"\((?:잠시|뜸|멈춤)\)", "...", text)
+
+    if line:
+        norm = line.get("normalization_hints") or ""
+        if isinstance(norm, str) and norm.strip():
+            for src, dst in _parse_hint_rules(norm):
+                text = text.replace(src, dst)
+
+        pron = line.get("pronunciation_hints") or ""
+        if isinstance(pron, str) and pron.strip():
+            for src, dst in _parse_hint_rules(pron):
+                text = text.replace(src, dst)
+
+    return re.sub(r"\s{2,}", " ", text).strip()
 
 
 def _normalize_tts_text(text: str) -> str:

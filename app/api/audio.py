@@ -82,7 +82,7 @@ async def generate_rehearsal(req: GenerateRehearsalRequest):
                 f"\n  ending     : {line.get('ending_shape') or '-'}"
                 f"\n  prompt     : {instructions!r}"
             )
-            generate_tts_file(voice_id, line["text"], instructions, audio_path, intensity=line.get("intensity", 2))
+            generate_tts_file(voice_id, line["text"], instructions, audio_path, intensity=line.get("intensity", 2), line=line)
             audio_map[str(idx)] = audio_url(audio_path)
         except Exception as e:
             print(f"[경고] line {idx} 음성 생성 실패: {e}")
@@ -129,7 +129,11 @@ async def generate_single_line(req: SingleLineRequest):
                     tts_direction=req.tts_direction,
                     emotion=req.emotion,
                 )
-            generate_tts_file(req.voice_id, req.text, instructions, audio_path, intensity=req.intensity or 2)
+            line_hints = {
+                "pronunciation_hints": req.pronunciation_hints,
+                "normalization_hints": req.normalization_hints,
+            }
+            generate_tts_file(req.voice_id, req.text, instructions, audio_path, intensity=req.intensity or 2, line=line_hints)
         except Exception as e:
             raise HTTPException(500, f"음성 생성 실패: {e}")
 

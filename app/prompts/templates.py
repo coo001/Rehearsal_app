@@ -26,7 +26,13 @@ Output format:
       "intensity": 2,
       "tempo": "보통",
       "next_cue_delay_ms": 300,
-      "pause_after": 600
+      "pause_after": 600,
+      "speech_act": "발화 행동 (몰아붙임/달래기/회피/선언 등) or null",
+      "delivery_mode": "전체 전달 질감 (짧은 구) or null",
+      "ending_shape": "삼킴|눌림|올라감|닫힘|흘러나감|열림 or null",
+      "phrase_breaks": "대사 내 호흡/끊기 지점 묘사 or null",
+      "pronunciation_hints": "발음 주의가 필요한 단어/표현 목록 or null",
+      "normalization_hints": "숫자·약어·외래어 읽기 방식 안내 or null"
     },
     {"type": "direction", "text": "지문/무대지시 내용"}
   ]
@@ -43,6 +49,12 @@ next_cue_delay_ms (ms): auto-advance 모드에서 이 대사가 시작되기 전
 - 긴 침묵 / 깨달음 / 감정 처리 후: 900~1500
 pause_after (ms): 이 대사 오디오가 끝난 뒤 다음 라인으로 넘어가기 전 대기 시간
 - 일반 400~700 / 감정적 800~1500 / 극적 1500~3000 / 짧은 반응 300~500
+speech_act: "몰아붙임|달래기|회피|선언|고백|떠보기|경고|부탁|거절|인정" 등 단일 명사구. null 허용.
+delivery_mode: 전체 전달 질감 짧은 구. null 허용.
+ending_shape: "삼킴|눌림|올라감|닫힘|흘러나감|열림" 중 하나. null 허용.
+phrase_breaks: 대사 내 자연스러운 호흡/끊기 지점 묘사. null 허용.
+pronunciation_hints: 발음 주의 단어/표현. null 허용.
+normalization_hints: 숫자·약어·외래어 읽기 방식. null 허용.
 
 Korean theatrical script format (한국어 연극 대본):
 - Dialogue format: "화자명 대사내용" — speaker name at line start, single space, then speech. NO colon.
@@ -109,7 +121,9 @@ Output format:
       "ending_shape": "끝처리 방식",
       "delivery_mode": "전체 전달 질감",
       "avoid": "금지할 읽기 방식 or null",
-      "tts_direction": "short physical delivery cue (backwards compat)"
+      "tts_direction": "short physical delivery cue (backwards compat)",
+      "pronunciation_hints": "발음 주의 단어/표현 or null",
+      "normalization_hints": "숫자·약어·외래어 읽기 방식 or null"
     },
     "7": { ... }
   }
@@ -161,6 +175,17 @@ avoid:
 tts_direction:
   Short physical delivery cue — kept for backwards compatibility.
   e.g. "낮게 시작" / "끝을 눌러 말함" / "중간에 짧게 멈춤"
+
+pronunciation_hints:
+  Words or expressions in the line that need special pronunciation attention.
+  Include proper nouns, loanwords, or ambiguous readings.
+  e.g. "강호(gang-ho 아닌 강-호로)" / "café → '카페'로 읽기"
+  null if nothing notable.
+
+normalization_hints:
+  How numbers, abbreviations, or foreign words should be spoken aloud.
+  e.g. "2014년 → '이천십사 년'" / "3% → '삼 퍼센트'" / "Dr. → '닥터'"
+  null if nothing notable.
 
 Rules:
 - Use character_analysis and relationships to ground every field
@@ -239,6 +264,8 @@ Output format:
       "delivery_mode": "전체 전달 질감. null if none.",
       "avoid": "금지할 읽기 방식. null if none.",
       "tts_direction": "short physical delivery cue only. null if none.",
+      "pronunciation_hints": "발음 주의 단어/표현. null if none.",
+      "normalization_hints": "숫자·약어·외래어 읽기 방식. null if none.",
       "pause_after": 600
     },
     {"type": "direction", "text": "지문/무대지시 내용"}
@@ -327,6 +354,17 @@ tts_direction:
 
   Good: 낮게 시작 / 끝을 눌러 말함 / 중간에 짧게 멈춤 / 웃음기 없이 짧게
   Bad: 상처받은 마음으로 / 복잡한 감정을 담아 / 절망과 분노가 섞인 상태로
+
+pronunciation_hints:
+  Words or expressions needing special pronunciation attention.
+  Include proper nouns, loanwords, or ambiguous readings.
+  e.g. "강호(강-호로 끊어)" / "café → '카페'로" / "박사 → '의원'이 아닌 '박사'로"
+  null if nothing notable.
+
+normalization_hints:
+  How numbers, abbreviations, or foreign words should be spoken aloud.
+  e.g. "2014년 → '이천십사 년'" / "3% → '삼 퍼센트'" / "Dr. → '닥터'"
+  null if nothing notable.
 
 ---
 
