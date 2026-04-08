@@ -47,6 +47,20 @@ def build_tts_instructions(
     return "\n".join(parts)
 
 
+def _hesitation_cue(next_cue_delay_ms: int | None) -> str:
+    """next_cue_delay_ms 값을 TTS 시작 hesitation cue 문자열로 변환.
+
+    < 500ms  : 빠른 응수 → 큐 없음 (빈 문자열)
+    500-899ms: 생각/망설임 비트 → 짧게 멈추다 시작
+    ≥ 900ms  : 긴 침묵/감정 처리 → 한 박 멈추고 시작
+    """
+    if not next_cue_delay_ms or next_cue_delay_ms < 500:
+        return ""
+    if next_cue_delay_ms >= 900:
+        return "한 박 멈추고 시작."
+    return "짧게 멈추다 시작."
+
+
 def build_elevenlabs_prompt(
     char_desc: str | None = None,
     beat_goal: str | None = None,
@@ -54,13 +68,15 @@ def build_elevenlabs_prompt(
     tts_direction: str | None = None,
     emotion_label: str | None = None,
     intensity: int | None = None,
-    # 발화 행동·호흡·끝처리 필드 (새 필드; 없으면 tts_direction fallback)
+    # 발화 행동·호흡·끝처리 필드
     speech_act: str | None = None,
     listener_pressure: str | None = None,
     phrase_breaks: str | None = None,
     ending_shape: str | None = None,
     delivery_mode: str | None = None,
     avoid: str | None = None,
+    # timing
+    next_cue_delay_ms: int | None = None,
 ) -> str:
     """ElevenLabs용 발화 지시 문자열.
 
@@ -68,8 +84,13 @@ def build_elevenlabs_prompt(
     목적·행동·호흡·끝처리 중심 구조로 조합.
     없으면 기존 tts_direction fallback.
     intensity < 3이면 감정 줄 생략.
+    next_cue_delay_ms ≥ 500ms이면 시작 hesitation cue 추가.
     """
     parts = ["상대에게 직접 말하듯. 읽지 말고, 생각이 말이 되게."]
+
+    cue = _hesitation_cue(next_cue_delay_ms)
+    if cue:
+        parts.append(cue)
 
     if char_desc:
         parts.append(f"이 인물: {char_desc}")

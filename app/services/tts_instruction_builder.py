@@ -1,16 +1,22 @@
 """구조화된 line analysis를 provider-ready TTS instruction string으로 조립한다.
 
 조립 우선순위:
-  1. speech_act   → 발화 행동 프레임 (sentence 1 앞부분)
-  2. delivery_mode → 전달 질감 (sentence 1 뒷부분 또는 sentence 1 전체)
-  3. ending_shape  → 끝처리 (sentence 2 앞부분)
-  4. phrase_breaks → 내부 끊김 (sentence 2 뒷부분)
-  5. subtext       → speech_act/delivery_mode 없을 때 내적 앵커로 sentence 1
-  6. tts_direction → 최후 fallback (sentence 1)
+  0. next_cue_delay_ms → 시작 hesitation cue (sentence 0, 필요한 경우만)
+  1. speech_act        → 발화 행동 프레임 (sentence 1 앞부분)
+  2. delivery_mode     → 전달 질감 (sentence 1 뒷부분 또는 sentence 1 전체)
+  3. ending_shape      → 끝처리 (sentence 2 앞부분)
+  4. phrase_breaks     → 내부 끊김 (sentence 2 뒷부분)
+  5. subtext           → speech_act/delivery_mode 없을 때 내적 앵커로 sentence 1
+  6. tts_direction     → 최후 fallback (sentence 1)
+
+next_cue_delay_ms 임계값:
+  < 500ms  : 큐 없음 (빠른 응수/일반 대화)
+  500-899ms: "짧게 멈추다 시작."
+  ≥ 900ms  : "한 박 멈추고 시작."
 
 사용 예:
   instruction = build_tts_instruction(line)
-  # → "상대를 떠보듯 낮게 시작한다. 끝을 닫아 말한다. 중간에 짧게 멈춘다."
+  # → "짧게 멈추다 시작. 떠보듯 낮게 시작한다. 끝을 닫아 말한다."
 """
 
 _ENDING_MAP: dict[str, str] = {
@@ -36,8 +42,9 @@ def build_tts_instruction(
         relationship_context: 관련 관계 항목 (optional, 향후 확장용).
 
     Returns:
-        Korean instruction string (≤2 문장). 사용 가능한 필드 없으면 빈 문자열.
+        Korean instruction string (≤3 문장). 사용 가능한 필드 없으면 빈 문자열.
     """
+    delay_ms = line.get("next_cue_delay_ms")
     act      = _str(line, "speech_act")
     mode     = _str(line, "delivery_mode")
     ending   = _str(line, "ending_shape")
@@ -45,14 +52,24 @@ def build_tts_instruction(
     subtext  = _str(line, "subtext")
     fallback = _str(line, "tts_direction")
 
+    s0 = _hesitation_cue(delay_ms)
     s1 = _sentence1(act, mode, subtext)
     s2 = _sentence2(ending, breaks)
 
-    result = " ".join(filter(None, [s1, s2])).strip()
+    result = " ".join(filter(None, [s0, s1, s2])).strip()
     return result if result else fallback
 
 
 # ─── private helpers ──────────────────────────────────────────────────────────
+
+def _hesitation_cue(ms: int | None) -> str:
+    """next_cue_delay_ms → TTS 시작 hesitation cue. 500ms 미만이면 빈 문자열."""
+    if not ms or ms < 500:
+        return ""
+    if ms >= 900:
+        return "한 박 멈추고 시작."
+    return "짧게 멈추다 시작."
+
 
 def _str(line: dict, key: str) -> str:
     """None 방지 — 항상 stripped string 반환."""

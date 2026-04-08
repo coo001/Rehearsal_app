@@ -42,6 +42,8 @@ class SingleLineRequest(BaseModel):
     # TTS 발음/정규화 힌트 (ElevenLabs 전용 텍스트 포맷팅에 사용)
     pronunciation_hints: Optional[str] = None
     normalization_hints: Optional[str] = None
+    # timing (ElevenLabs hesitation cue 및 playback scheduler용)
+    next_cue_delay_ms: Optional[int] = None
     # 하위 호환: 구형 단일 emotion 문자열
     emotion: Optional[str] = None
 

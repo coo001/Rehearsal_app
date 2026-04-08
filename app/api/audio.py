@@ -60,6 +60,7 @@ async def generate_rehearsal(req: GenerateRehearsalRequest):
                     ending_shape=line.get("ending_shape"),
                     delivery_mode=line.get("delivery_mode"),
                     avoid=line.get("avoid"),
+                    next_cue_delay_ms=line.get("next_cue_delay_ms"),
                 )
             else:
                 instructions = build_tts_instructions(
@@ -116,6 +117,7 @@ async def generate_single_line(req: SingleLineRequest):
                     ending_shape=req.ending_shape,
                     delivery_mode=req.delivery_mode,
                     avoid=req.avoid,
+                    next_cue_delay_ms=req.next_cue_delay_ms,
                 )
             else:
                 instructions = build_tts_instructions(
