@@ -176,13 +176,24 @@ class TtsInput:
     speech_mode: str = "neutral"  # restrained | neutral | pressing | hesitant | cutting
 
 
+# intensity (1~5) → (stability, style) 기준값
+# 자연스러운 대화 우선 — style은 0.20을 넘지 않음 (과장 억제)
+_INTENSITY_SETTINGS: dict[int, tuple[float, float]] = {
+    1: (0.65, 0.05),  # 매우 절제 (평온, 숨김, 무감각)
+    2: (0.60, 0.08),  # 차분 (기본 대화, 억제된 감정)
+    3: (0.52, 0.13),  # 보통 (감정이 자연스럽게 드러남)
+    4: (0.48, 0.17),  # 다소 강함 (감정이 표면에 올라옴)
+    5: (0.45, 0.20),  # 강렬 (최대 — 장면 전체에서 드물게)
+}
+
 # speech_mode → (stability_delta, style_delta) — intensity 기준값에 더하는 보조 축
+# delta는 보수적으로 유지 — 기준값 자체가 이미 보정됨
 _SPEECH_MODE_OFFSETS: dict[str, tuple[float, float]] = {
-    "restrained": (+0.12, -0.10),  # 절제, 억누름 — 안정적이고 조용한 전달
+    "restrained": (+0.08, -0.05),  # 절제, 억누름 — 더 안정적
     "neutral":    ( 0.00,  0.00),  # 기본값
-    "pressing":   (-0.10, +0.12),  # 압박, 몰아붙임 — 불안정하고 강한 표현
-    "hesitant":   (+0.08, -0.05),  # 망설임, 머뭇거림 — 다소 안정적이나 평평한 느낌
-    "cutting":    (-0.08, +0.06),  # 끊음, 단호함 — 날카롭고 표현적
+    "pressing":   (-0.07, +0.07),  # 압박, 몰아붙임 — 약간 불안정하고 표현적
+    "hesitant":   (+0.05, -0.03),  # 망설임, 머뭇거림 — 약간 안정적
+    "cutting":    (-0.05, +0.04),  # 끊음, 단호함 — 약간 날카롭게
 }
 
 
@@ -229,15 +240,15 @@ def _elevenlabs_voice_hints(instructions: str) -> tuple[float, float]:
     intensity 기준값에 더할 미세 조정치. 각 신호는 독립적으로 누적.
 
     ending_shape 신호:
-      삼킴/눌림 → 절제된 끝맺음 (stability +0.08)
-      올라감/열림/흘러나감 → 개방적 끝맺음 (stability -0.05)
+      삼킴/눌림 → 절제된 끝맺음 (stability +0.05)
+      올라감/열림/흘러나감 → 개방적 끝맺음 (stability -0.03)
 
     listener_pressure:
-      압박: 강함 → 긴장감 (stability -0.08, style +0.10)
+      압박: 강함 → 긴장감 (stability -0.05, style +0.05)
 
     delivery_mode:
-      속삭/낮게 포함 → 조용한 전달 (stability +0.15, style -0.08)
-      거칠/급/몰아 포함 → 거친 전달 (stability -0.05, style +0.06)
+      속삭/낮게 포함 → 조용한 전달 (stability +0.08, style -0.05)
+      거칠/급/몰아 포함 → 거친 전달 (stability -0.04, style +0.04)
     """
     if not instructions:
         return 0.0, 0.0
@@ -247,22 +258,22 @@ def _elevenlabs_voice_hints(instructions: str) -> tuple[float, float]:
 
     # ending_shape
     if '삼킴' in t or '눌림' in t:
-        s += 0.08
+        s += 0.05
     elif '올라감' in t or '열림' in t or '흘러나감' in t:
-        s -= 0.05
+        s -= 0.03
 
     # listener_pressure
     if '압박: 강함' in t:
-        s -= 0.08
-        st += 0.10
+        s -= 0.05
+        st += 0.05
 
     # delivery_mode
     if '속삭' in t or '낮게' in t:
-        s += 0.15
-        st -= 0.08
+        s += 0.08
+        st -= 0.05
     elif '거칠' in t or '급' in t or '몰아' in t:
-        s -= 0.05
-        st += 0.06
+        s -= 0.04
+        st += 0.04
 
     return s, st
 
@@ -288,13 +299,8 @@ def _generate_elevenlabs(
     from elevenlabs.client import ElevenLabs
     from elevenlabs import VoiceSettings
 
-    # 1) intensity 기준값
-    if intensity <= 2:
-        stability, style = 0.70, 0.08
-    elif intensity == 3:
-        stability, style = 0.55, 0.20
-    else:
-        stability, style = 0.38, 0.40
+    # 1) intensity 기준값 (테이블 — style 최대 0.20 cap)
+    stability, style = _INTENSITY_SETTINGS.get(max(1, min(5, intensity)), (0.60, 0.08))
 
     # 2) speech_mode 보조 축
     s_mode, st_mode = _SPEECH_MODE_OFFSETS.get(speech_mode, (0.0, 0.0))
@@ -303,8 +309,8 @@ def _generate_elevenlabs(
 
     # 3) instruction signal 미세 조정 + clamp
     s_delta, st_delta = _elevenlabs_voice_hints(instructions)
-    stability = max(0.10, min(1.00, stability + s_delta))
-    style     = max(0.00, min(1.00, style     + st_delta))
+    stability = max(0.20, min(0.90, stability + s_delta))
+    style     = max(0.00, min(0.20, style     + st_delta))  # style 절대 0.20 초과 금지
 
     _log_tts_input("elevenlabs", voice_id, text, instructions, intensity, speech_mode, round(stability, 2), round(style, 2))
 
@@ -316,7 +322,7 @@ def _generate_elevenlabs(
         output_format="mp3_44100_128",
         voice_settings=VoiceSettings(
             stability=stability,
-            similarity_boost=0.80,
+            similarity_boost=0.78,
             style=style,
             use_speaker_boost=False,
         ),
