@@ -571,19 +571,19 @@
     </div>
     <div class="step-item" id="step-2">
       <div class="step-num">2</div>
-      <span class="step-label">캐릭터 선택</span>
+      <span class="step-label">목소리 배정</span>
     </div>
     <div class="step-item" id="step-3">
       <div class="step-num">3</div>
-      <span class="step-label">목소리 배정</span>
+      <span class="step-label">연습 범위</span>
     </div>
     <div class="step-item" id="step-4">
       <div class="step-num">4</div>
-      <span class="step-label">연습 범위</span>
+      <span class="step-label">음성 생성</span>
     </div>
     <div class="step-item" id="step-5">
       <div class="step-num">5</div>
-      <span class="step-label">음성 생성</span>
+      <span class="step-label">캐릭터 선택</span>
     </div>
     <div class="step-item" id="step-6">
       <div class="step-num">6</div>
@@ -642,7 +642,7 @@
 
   </div>
 
-  <!-- ── 2단계: 캐릭터 확인 & 내 역할 선택 ── -->
+  <!-- ── 5단계: 캐릭터 확인 & 내 역할 선택 ── -->
   <div id="phase-characters" class="hidden">
     <div class="panel">
       <div class="panel-title">내 역할 선택</div>
@@ -652,13 +652,13 @@
       <div id="selected-char-info" class="hidden" style="margin-top:16px; padding:12px 16px; background:var(--success-dim); border:1px solid var(--success); border-radius:8px; font-size:0.9rem; color:var(--success);">
       </div>
       <div class="panel-footer">
-        <button class="btn btn-primary btn-lg" id="next-to-voices" onclick="goToVoices()" disabled>목소리 배정 →</button>
-        <button class="btn btn-ghost" onclick="goBack(1)">← 대본 수정</button>
+        <button class="btn btn-primary btn-lg" id="next-to-rehearsal" onclick="startRehearsal()" disabled>리허설 시작 →</button>
+        <button class="btn btn-ghost" onclick="goBack(3)">← 연습 범위</button>
       </div>
     </div>
   </div>
 
-  <!-- ── 3단계: 목소리 배정 ── -->
+  <!-- ── 2단계: 목소리 배정 ── -->
   <div id="phase-voices" class="hidden">
     <div class="panel">
       <div class="panel-title">목소리 배정</div>
@@ -690,7 +690,7 @@
         <button class="btn btn-outline" id="auto-assign-btn" onclick="autoAssignVoices()">
           <span id="auto-assign-text">🤖 AI 자동 배정</span>
         </button>
-        <button class="btn btn-ghost" onclick="goBack(2)">← 역할 선택</button>
+        <button class="btn btn-ghost" onclick="goBack(1)">← 대본 수정</button>
       </div>
     </div>
   </div>
@@ -720,7 +720,7 @@
       </div>
       <div class="panel-footer">
         <button class="btn btn-primary btn-lg" onclick="confirmScope()">음성 생성 시작 →</button>
-        <button class="btn btn-ghost" onclick="gotoStep(3)">← 목소리 선택</button>
+        <button class="btn btn-ghost" onclick="gotoStep(2)">← 목소리 선택</button>
       </div>
     </div>
   </div>
@@ -737,7 +737,7 @@
     </div>
   </div>
 
-  <!-- ── 5단계: 연습 ── -->
+  <!-- ── 6단계: 연습 ── -->
   <div id="phase-rehearsal" class="hidden">
     <div class="rehearsal-header">
       <div>
@@ -1106,12 +1106,21 @@ function _renderRestoredSessionPhase(data) {
     if (card) selectCharacter(appState.userCharacter, card);
   }
 
-  gotoStep(2);
-  const roleHint = appState.userCharacter ? ` (이전 역할: ${appState.userCharacter})` : '';
-  const msg = lineCount < 10
-    ? `"${data.title || '세션'}" 복원 (경고: 대사 ${lineCount}줄만 있음)`
-    : `"${data.title || '세션'}" 복원 완료${roleHint} — 역할을 확인하고 계속하세요.`;
-  showToast(msg, lineCount < 10 ? 'warning' : 'success');
+  const hasAudio = Object.keys(appState.audioMap).length > 0;
+  if (hasAudio) {
+    gotoStep(5);
+    const roleHint = appState.userCharacter ? ` (이전 역할: ${appState.userCharacter})` : '';
+    const msg = lineCount < 10
+      ? `"${data.title || '세션'}" 복원 (경고: 대사 ${lineCount}줄만 있음)`
+      : `"${data.title || '세션'}" 복원 완료${roleHint} — 역할을 확인하고 리허설을 시작하세요.`;
+    showToast(msg, lineCount < 10 ? 'warning' : 'success');
+  } else {
+    goToVoices();
+    const msg = lineCount < 10
+      ? `"${data.title || '세션'}" 복원 (경고: 대사 ${lineCount}줄만 있음)`
+      : `"${data.title || '세션'}" 복원 완료 — 목소리를 확인하고 계속하세요.`;
+    showToast(msg, lineCount < 10 ? 'warning' : 'success');
+  }
 }
 
 async function restoreSession(sid) {
@@ -1177,10 +1186,10 @@ function showToast(msg, type = '') {
 // step 번호 ↔ phase 이름의 단일 source-of-truth
 const STEP_PHASES = {
   1: 'input',
-  2: 'characters',
-  3: 'voices',
-  4: 'scope',
-  5: 'generating',
+  2: 'voices',
+  3: 'scope',
+  4: 'generating',
+  5: 'characters',
   6: 'rehearsal',
 };
 
@@ -1280,10 +1289,10 @@ function _applyParsedScriptState(data) {
   appState.parsedScript = data;
 }
 
-// 캐릭터 렌더 + 2단계 이동 + toast (text/pdf 공통)
+// 캐릭터 렌더 + 목소리 배정 단계로 이동 + toast (text/pdf 공통)
 function _renderCharactersPhase(lineCount, source) {
   renderCharacters();
-  gotoStep(2);
+  goToVoices();
   if (lineCount < 10) {
     showToast(`경고: 대사가 ${lineCount}줄만 추출됐습니다. 파싱을 다시 시도해보세요.`, 'warning');
   } else if (appState.parsedScript.partial_failure) {
@@ -1412,11 +1421,7 @@ function selectCharacter(char, card) {
   document.querySelectorAll('.char-card').forEach(c => c.classList.remove('selected'));
   card.classList.add('selected');
   if (appState.userCharacter !== null && appState.userCharacter !== char) {
-    console.log(
-      `[Session] 역할 변경: "${appState.userCharacter}" → "${char}"` +
-      ` — run-level 무효화: appState.audioMap(${Object.keys(appState.audioMap).length}개), appState.sessionId, 범위, 위치`
-    );
-    resetRunStateForRoleChange();
+    console.log(`[Session] 역할 변경: "${appState.userCharacter}" → "${char}" — audioMap 유지`);
   }
   appState.userCharacter = char;
 
@@ -1424,13 +1429,12 @@ function selectCharacter(char, card) {
   info.classList.remove('hidden');
   info.innerHTML = `✅ <strong>${char}</strong> 역할로 연습합니다. 이 캐릭터의 대사는 직접 읽고, 나머지는 AI 음성으로 재생됩니다.`;
 
-  document.getElementById('next-to-voices').disabled = false;
+  document.getElementById('next-to-rehearsal').disabled = false;
 }
 
-// ── 3단계: 목소리 배정 ────────────────────────────────────
+// ── 2단계: 목소리 배정 ────────────────────────────────────
 async function goToVoices() {
-  if (!appState.userCharacter) { showToast('역할을 선택해주세요.', 'error'); return; }
-  gotoStep(3);
+  gotoStep(2);
   await loadVoices();
 
   const otherChars = appState.parsedScript.characters.filter(c => c !== appState.userCharacter);
@@ -1682,7 +1686,7 @@ function showScopeSelector() {
   document.getElementById('scope-end').value = total;
   document.getElementById('scope-end').max = total;
   setScopeMode('full');
-  gotoStep(4);
+  gotoStep(3);
 }
 
 function setScopeMode(mode) {
@@ -1744,7 +1748,7 @@ function _applyGenerationResult(data, scopeStart, total) {
 }
 
 async function startGeneration() {
-  gotoStep(5);
+  gotoStep(4);
 
   const { start: scopeStart, end: scopeEnd } = getScopedBounds();
   const scopedLines = getScopedLines();
@@ -1754,19 +1758,18 @@ async function startGeneration() {
   if (scopedLines.length === 0) {
     console.warn('[Gen] scoped line count is 0 — 범위를 확인하세요');
     showToast('연습 범위 안에 대사가 없습니다. 범위를 확인하세요.', 'error');
-    gotoStep(4); return;
+    gotoStep(3); return;
   }
   if (scopeStart > canonical.length - 1 || scopeEnd > canonical.length - 1) {
     console.warn(`[Gen] 범위 초과 — canonical length=${canonical.length}, scope=[${scopeStart}..${scopeEnd}]`);
   }
 
-  const nonUserLines = scopedLines.filter(
-    l => l.type === 'dialogue' && l.character !== appState.userCharacter
-  );
+  // user_character를 아직 모르므로 모든 캐릭터 대사를 생성
+  const nonUserLines = scopedLines.filter(l => l.type === 'dialogue');
   const total = nonUserLines.length;
 
   if (total === 0) {
-    startRehearsal();
+    gotoStep(5);
     return;
   }
 
@@ -1776,18 +1779,18 @@ async function startGeneration() {
     const data = await _apiGenerateRehearsal({
       lines: scopedLines,
       voice_assignments: appState.voiceAssignments,
-      user_character: appState.userCharacter,
+      user_character: '',
       character_descriptions: appState.parsedScript.character_descriptions || {},
     });
     _applyGenerationResult(data, scopeStart, total);
 
     await saveCurrentSession();
 
-    setTimeout(() => startRehearsal(), 800);
+    setTimeout(() => gotoStep(5), 800);
 
   } catch (e) {
     showToast(`음성 생성 오류: ${e.message}`, 'error');
-    gotoStep(4);
+    gotoStep(3);
   }
 }
 
@@ -2274,7 +2277,7 @@ function _doEndRehearsal() {
       toggleBtn.style.color = '';
     }
   }
-  goBack(3);
+  goBack(5);
 }
 
 // ── 뒤로 가기 ────────────────────────────────────────────
