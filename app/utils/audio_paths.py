@@ -27,31 +27,49 @@ def slugify(name: str, max_len: int = 16) -> str:
     return slug[:max_len] or "char"
 
 
-def content_hash(text: str) -> str:
-    """대사 텍스트의 SHA-1 앞 6자리.
+def content_hash(text: str, instructions: str = "", voice_id: str = "") -> str:
+    """TTS 입력의 SHA-1 앞 6자리.
 
-    동일 대사를 재요청할 때 캐시 재사용 가능하고,
-    파일명만 봐도 내용 변경 여부를 빠르게 확인할 수 있다.
+    text만 해싱하면 동일 텍스트지만 다른 지시문/음성일 때 캐시가 오염된다.
+    instructions + voice_id를 포함해 캐시 키를 명확히 구분한다.
     """
-    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:6]
+    payload = "|".join([text, instructions, voice_id])
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:6]
 
 
-def rehearsal_audio_path(session_id: str, idx: int, character: str, text: str) -> Path:
+def rehearsal_audio_path(
+    session_id: str,
+    idx: int,
+    character: str,
+    text: str,
+    instructions: str = "",
+    voice_id: str = "",
+) -> Path:
     """연습 세션용 오디오 경로.
 
     예: audio/abc123.../003_민수_a1b2c3.mp3
+
+    instructions + voice_id를 해시에 포함하므로 동일 대사라도
+    음성 설정이 바뀌면 다른 파일로 분리된다.
     """
     slug = slugify(character)
-    h = content_hash(text)
+    h = content_hash(text, instructions, voice_id)
     filename = f"{idx:03d}_{slug}_{h}.mp3"
     path = AUDIO_DIR / session_id / filename
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
 
-def single_line_audio_path(session_id: str, idx: int, character: str, text: str) -> Path:
+def single_line_audio_path(
+    session_id: str,
+    idx: int,
+    character: str,
+    text: str,
+    instructions: str = "",
+    voice_id: str = "",
+) -> Path:
     """단일 줄 생성(미리듣기 포함)용 오디오 경로."""
-    return rehearsal_audio_path(session_id, idx, character, text)
+    return rehearsal_audio_path(session_id, idx, character, text, instructions, voice_id)
 
 
 def audio_url(path: Path) -> str:
