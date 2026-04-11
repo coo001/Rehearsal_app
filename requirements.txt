@@ -1,8 +1,17 @@
-openai
-elevenlabs
-fastapi
-uvicorn[standard]
-python-dotenv
-aiofiles
-pypdf
-python-multipart
+# Python >= 3.10 required  (list[X] | None union syntax used throughout)
+# Pinned to major-version ranges — do not upgrade across major boundaries
+# without testing. Versions reflect what was verified working (2026-04-11).
+
+# ── Core API clients ────────────────────────────────────────────
+openai>=1.93.0,<2.0.0          # v1→v2 는 client API 대규모 변경
+elevenlabs>=2.39.0,<3.0.0      # v2→v3 는 TTS 호출 인터페이스 변경 가능
+
+# ── Web framework ───────────────────────────────────────────────
+fastapi>=0.115.0,<1.0.0        # pre-1.0 → 1.0 호환성 미검증
+uvicorn[standard]>=0.30.6,<1.0.0
+
+# ── Utilities ───────────────────────────────────────────────────
+python-dotenv>=1.1.0,<2.0.0
+aiofiles>=25.1.0,<26.0.0       # year-based versioning (23.x / 24.x / 25.x)
+pypdf>=6.9.0,<7.0.0            # PdfReader API 변경 방지
+python-multipart>=0.0.9,<1.0.0

@@ -4,6 +4,8 @@ OpenAI + ElevenLabs를 활용한 인터랙티브 대본 연습 환경
 
 ## 설치 및 실행
 
+**Python 3.10 이상 필요** (3.10+ union type 문법 사용)
+
 ### 1. 패키지 설치
 ```bash
 cd rehearsal_app
