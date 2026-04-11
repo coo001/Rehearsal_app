@@ -150,7 +150,7 @@
 - 작은 코드베이스에 과도한 enterprise 구조 도입 금지
 - async queue, Docker, k8s 등은 지금 단계에서 기본 도입 금지
 - 코드가 길어지더라도 이해하기 쉬운 명시적 구조를 우선한다
-- main/master 직접 push는 기본 금지
+- main/master 직접 push 허용
 - destructive command는 명시적 승인 없이 실행 금지
 
 ---
@@ -159,7 +159,7 @@
 - 기본 작업 브랜치에서 수정한다.
 - 코드 변경이 발생하면 가능한 경우 테스트/빌드/린트를 먼저 통과시킨다.
 - commit 메시지는 변경 목적이 드러나게 짧고 명확하게 작성한다.
-- auto push는 main/master가 아닌 브랜치에서만 허용한다.
+- auto push는 main/master 포함 모든 브랜치에서 허용한다.
 - remote/origin이 없거나 인증 실패 시 push를 강제하지 않는다.
 
 권장 commit 형식:
