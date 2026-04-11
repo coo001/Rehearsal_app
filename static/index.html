@@ -695,7 +695,7 @@
     </div>
   </div>
 
-  <!-- ── 3.5단계: 연습 범위 선택 ── -->
+  <!-- ── 3단계: 연습 범위 선택 ── -->
   <div id="phase-scope" class="hidden">
     <div class="panel">
       <div class="panel-title">연습 범위 선택</div>
@@ -1194,7 +1194,8 @@ const STEP_PHASES = {
 };
 
 function setStep(active) {
-  for (let i = 1; i <= 6; i++) {
+  const maxStep = Object.keys(STEP_PHASES).length;
+  for (let i = 1; i <= maxStep; i++) {
     const el = document.getElementById(`step-${i}`);
     el.classList.remove('active', 'done');
     if (i < active) el.classList.add('done');
