@@ -1,6 +1,6 @@
 # 🎭 AI 대본 연습 시스템
 
-OpenAI + ElevenLabs를 활용한 인터랙티브 대본 연습 환경
+.OpenAI + ElevenLabs를 활용한 인터랙티브 대본 연습 환경
 
 ## 설치 및 실행
 
