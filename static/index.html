@@ -850,23 +850,23 @@ applyTheme(localStorage.getItem('theme') || 'dark');
 
 // ── 전역 상태 ──────────────────────────────────────────────
 const appState = {
-  parsedScript:      null,   // { title, characters, character_descriptions, lines }
-  userCharacter:     null,
-  voiceAssignments:  {},
-  availableVoices:   [],
-  sessionId:         null,
-  audioMap:          {},
-  currentLineIndex:  0,
-  rehearsalStartIdx: 0,      // inclusive, 0-based index into parsedScript.lines
-  rehearsalEndIdx:   null,   // inclusive, 0-based; null = last line
-  scopeMode:         'full', // 'full' | 'range'
-  autoAdvance:       false,
+  parsedScript:        null,   // { title, characters, character_descriptions, lines }
+  userCharacter:       null,
+  voiceAssignments:    {},
+  availableVoices:     [],
+  sessionId:           null,
+  audioMap:            {},
+  currentLineIndex:    0,
+  rehearsalStartIdx:   0,      // inclusive, 0-based index into parsedScript.lines
+  rehearsalEndIdx:     null,   // inclusive, 0-based; null = last line
+  scopeMode:           'full', // 'full' | 'range'
+  autoAdvance:         false,
+  currentAudio:        null,
+  scriptVisibilityMode:'show_all', // 'show_all' | 'hide_my_lines' | 'hide_all_lines'
+  pendingPdfFile:      null,   // PDF 업로드됐지만 아직 분석 안 된 파일
 };
-let currentAudio = null;
 let autoAdvanceTimer = null;  // goToVoices 자동 진행 타이머 (goBack 시 취소용)
 let countdownTimer = null;    // 자동 진행 타이머
-let scriptVisibilityMode = 'show_all'; // 'show_all' | 'hide_my_lines' | 'hide_all_lines'
-let pendingPdfFile = null;  // PDF 업로드됐지만 아직 분석 안 된 파일
 
 function getScopeEnd() {
   return appState.rehearsalEndIdx ?? (appState.parsedScript ? appState.parsedScript.lines.length - 1 : 0);
@@ -896,7 +896,7 @@ function isInScope(index) {
 function _stopPlayback() {
   clearCountdown();
   stopListening();
-  if (currentAudio) { currentAudio.pause(); currentAudio = null; setAudioStatus(false, ''); }
+  if (appState.currentAudio) { appState.currentAudio.pause(); appState.currentAudio = null; setAudioStatus(false, ''); }
   if (autoAdvanceTimer) { clearTimeout(autoAdvanceTimer); autoAdvanceTimer = null; }
 }
 
@@ -952,7 +952,7 @@ function shouldMaskLine(line, mode, userChar) {
 }
 
 function setVisibilityMode(mode) {
-  scriptVisibilityMode = mode;
+  appState.scriptVisibilityMode = mode;
   document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
   document.querySelectorAll(`[data-mode="${mode}"]`).forEach(btn => btn.classList.add('active'));
   const saved = appState.currentLineIndex;
@@ -1222,7 +1222,7 @@ function handlePdfUpload(input) {
   if (!file) return;
   input.value = '';  // 같은 파일 재선택 허용
 
-  pendingPdfFile = file;
+  appState.pendingPdfFile = file;
   console.log(`[PDF] 파일 준비됨: ${file.name} (${(file.size / 1024).toFixed(0)}KB)`);
 
   const status = document.getElementById('pdf-status');
@@ -1319,8 +1319,8 @@ function _renderCharactersPhase(lineCount, source) {
 
 async function parseScript() {
   // PDF 대기 중이면 PDF 분석 경로로 분기
-  if (pendingPdfFile) {
-    await _parsePdfFile(pendingPdfFile);
+  if (appState.pendingPdfFile) {
+    await _parsePdfFile(appState.pendingPdfFile);
     return;
   }
 
@@ -1358,7 +1358,7 @@ async function parseScript() {
   }
 }
 
-// PDF 파일 분석 (parseScript에서 pendingPdfFile 있을 때 호출)
+// PDF 파일 분석 (parseScript에서 appState.pendingPdfFile 있을 때 호출)
 async function _parsePdfFile(file) {
   const btn = document.getElementById('parse-btn');
   const pdfStatus = document.getElementById('pdf-status');
@@ -1377,7 +1377,7 @@ async function _parsePdfFile(file) {
     const pdfData = await _apiParsePdf(formData, controller.signal);
     console.timeEnd('[parsePdf] api');
     clearTimeout(timeoutId);
-    pendingPdfFile = null;
+    appState.pendingPdfFile = null;
     _applyParsedScriptState(pdfData);
     const pdfLineCount = appState.parsedScript.lines?.length || 0;
     console.log(`[Script] PDF 분석 완료 — lines=${pdfLineCount}, chars=${appState.parsedScript.characters?.length || 0}`);
@@ -1422,6 +1422,7 @@ function selectCharacter(char, card) {
   card.classList.add('selected');
   if (appState.userCharacter !== null && appState.userCharacter !== char) {
     console.log(`[Session] 역할 변경: "${appState.userCharacter}" → "${char}" — audioMap 유지`);
+    _stopPlayback();
   }
   appState.userCharacter = char;
 
@@ -1808,7 +1809,7 @@ function buildScriptViewer() {
       div.textContent = line.text;
     } else {
       const isUser = line.character === appState.userCharacter;
-      const masked = shouldMaskLine(line, scriptVisibilityMode, appState.userCharacter);
+      const masked = shouldMaskLine(line, appState.scriptVisibilityMode, appState.userCharacter);
       div.className = 'script-line upcoming';
       div.innerHTML = `
         <div class="line-char-label ${isUser ? 'user-char' : 'other-char'}">
@@ -1828,7 +1829,7 @@ function startRehearsal() {
 
   buildScriptViewer();
 
-  appState.currentLineIndex = getScopedBounds().start;
+  resetPlaybackState();
   updateDisplay();
   if (appState.autoAdvance) {
     setTimeout(() => playCurrentLine(), 600);
@@ -1884,7 +1885,7 @@ function updateDisplay() {
     box.className = 'current-line-box user-turn';
     badge.className = 'turn-badge user';
     badge.textContent = `🎤 내 대사 (${appState.userCharacter})`;
-    const maskedUser = shouldMaskLine(line, scriptVisibilityMode, appState.userCharacter);
+    const maskedUser = shouldMaskLine(line, appState.scriptVisibilityMode, appState.userCharacter);
     textEl.textContent = maskedUser ? '••••••' : line.text;
     playBtn.textContent = listeningActive ? '✋ 완료 (수동)' : '✓ 읽었어요 →';
     playBtn.disabled = false;
@@ -1895,7 +1896,7 @@ function updateDisplay() {
     box.className = 'current-line-box';
     badge.className = 'turn-badge ai';
     badge.textContent = `🤖 ${line.character}의 대사`;
-    const maskedAI = shouldMaskLine(line, scriptVisibilityMode, appState.userCharacter);
+    const maskedAI = shouldMaskLine(line, appState.scriptVisibilityMode, appState.userCharacter);
     textEl.textContent = maskedAI ? '••••••' : line.text;
     playBtn.textContent = '▶ 재생';
     playBtn.disabled = false;
@@ -2082,7 +2083,7 @@ function setListeningStatus(active) {
   } else {
     wave.classList.remove('listening');
     box.classList.remove('listening-turn');
-    if (!currentAudio) { wave.classList.add('hidden'); statusText.textContent = ''; }
+    if (!appState.currentAudio) { wave.classList.add('hidden'); statusText.textContent = ''; }
     const line = appState.parsedScript?.lines[appState.currentLineIndex];
     if (line?.character === appState.userCharacter) playBtn.textContent = '✓ 읽었어요 →';
   }
@@ -2130,7 +2131,7 @@ async function playCurrentLine() {
     return;
   }
 
-  if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+  if (appState.currentAudio) { appState.currentAudio.pause(); appState.currentAudio = null; }
 
   setAudioStatus(true, `${line.character} 재생 중...`);
   document.getElementById('btn-play').disabled = true;
@@ -2153,7 +2154,7 @@ async function playCurrentLine() {
       document.getElementById('btn-play').disabled = false;
     },
   });
-  if (ctrl) currentAudio = ctrl;
+  if (ctrl) appState.currentAudio = ctrl;
 }
 
 function setAudioStatus(active, text) {
