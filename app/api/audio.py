@@ -6,6 +6,7 @@ DELETE /api/session/{id}      — 세션 파일 정리
 """
 
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from fastapi import APIRouter, HTTPException
 
@@ -28,23 +29,30 @@ async def generate_rehearsal(req: GenerateRehearsalRequest):
     dialogue_lines = sum(1 for l in req.lines if l.get("type") == "dialogue" and l.get("character") != req.user_character)
     print(f"[Gen] generate-rehearsal 시작 — total_lines={total_lines}, ai_dialogue={dialogue_lines}, session={session_id[:8]}")
 
+    # 생성이 필요한 라인만 추려 병렬 처리한다.
+    # 캐시 히트(이미 파일 존재)는 즉시 수집하고, 신규 생성만 executor로 넘긴다.
+    pending: list[tuple[int, dict]] = []  # (idx, line)
+
     for idx, line in enumerate(req.lines):
         if line.get("type") != "dialogue":
             continue
         char = line.get("character", "")
         if char == req.user_character:
             continue
-
-        voice_id = req.voice_assignments.get(char)
-        if not voice_id:
+        if not req.voice_assignments.get(char):
             continue
 
         audio_path = rehearsal_audio_path(session_id, idx, char, line.get("text", ""))
-
         if audio_path.exists():
             audio_map[str(idx)] = audio_url(audio_path)
-            continue
+        else:
+            pending.append((idx, line))
 
+    def _generate_one(idx: int, line: dict) -> tuple[str, str] | None:
+        """한 라인의 TTS를 생성하고 (str(idx), url) 을 반환. 실패 시 None."""
+        char = line.get("character", "")
+        voice_id = req.voice_assignments.get(char)
+        audio_path = rehearsal_audio_path(session_id, idx, char, line.get("text", ""))
         try:
             if TTS_PROVIDER == "elevenlabs":
                 instructions = build_elevenlabs_prompt(
@@ -86,9 +94,20 @@ async def generate_rehearsal(req: GenerateRehearsalRequest):
                 f"\n  prompt     : {instructions[:120]!r}{'…' if len(instructions) > 120 else ''}"
             )
             generate_tts_file(voice_id, line["text"], instructions, audio_path, intensity=line.get("intensity", 2), line=line)
-            audio_map[str(idx)] = audio_url(audio_path)
+            return str(idx), audio_url(audio_path)
         except Exception as e:
             print(f"[경고] line {idx} 음성 생성 실패: {e}")
+            return None
+
+    if pending:
+        # MAX_WORKERS=4 — script_parser.py와 동일한 보수적 설정
+        # ElevenLabs rate limit 초과 시 2로 낮출 것
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            futures = {executor.submit(_generate_one, idx, line): idx for idx, line in pending}
+            for future in as_completed(futures):
+                result = future.result()
+                if result is not None:
+                    audio_map[result[0]] = result[1]
 
     return json_response({
         "session_id": session_id,
