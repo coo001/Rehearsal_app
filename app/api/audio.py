@@ -83,7 +83,7 @@ async def generate_rehearsal(req: GenerateRehearsalRequest):
                 f"\n  ending     : {line.get('ending_shape') or '-'}"
                 f"\n  norm_hints : {(line.get('normalization_hints') or '-')[:60]}"
                 f"\n  pron_hints : {(line.get('pronunciation_hints') or '-')[:60]}"
-                f"\n  prompt     : {instructions!r}"
+                f"\n  prompt     : {instructions[:120]!r}{'…' if len(instructions) > 120 else ''}"
             )
             generate_tts_file(voice_id, line["text"], instructions, audio_path, intensity=line.get("intensity", 2), line=line)
             audio_map[str(idx)] = audio_url(audio_path)

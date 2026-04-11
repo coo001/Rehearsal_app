@@ -82,8 +82,6 @@ def parse_script_pdf(pdf_bytes: bytes, filename: str = "script.pdf", total_pages
     user_text = "이 대본을 분석해주세요. Output must be a single valid json object. No text outside json."
 
     print(f"[PDF-Direct] Responses API 호출 중... ({len(pdf_bytes):,}B, {total_pages}페이지)")
-    print(f"[PDF-Direct] instructions prefix: {instructions_with_json[:40]!r}")
-    print(f"[PDF-Direct] input_text: {user_text!r}")
     t = time.time()
     response = client.responses.create(
         model=OPENAI_PARSE_PDF_MODEL,
