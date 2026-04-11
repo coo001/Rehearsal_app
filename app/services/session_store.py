@@ -14,7 +14,10 @@ SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _path(session_id: str) -> Path:
-    return SESSIONS_DIR / f"{session_id}.json"
+    p = SESSIONS_DIR / f"{session_id}.json"
+    if not p.resolve().is_relative_to(SESSIONS_DIR.resolve()):
+        raise ValueError(f"Invalid session_id: {session_id!r}")
+    return p
 
 
 def save_session(data: dict) -> dict:

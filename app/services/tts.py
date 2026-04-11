@@ -333,6 +333,8 @@ def _generate_elevenlabs(
 def delete_session_files(session_id: str) -> None:
     """세션 디렉토리와 하위 파일 전체 삭제."""
     session_dir = AUDIO_DIR / session_id
+    if not session_dir.resolve().is_relative_to(AUDIO_DIR.resolve()):
+        raise ValueError(f"Invalid session_id: {session_id!r}")
     if session_dir.exists():
         shutil.rmtree(session_dir)
 

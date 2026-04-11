@@ -16,6 +16,7 @@ from app.services.session_store import (
     load_session,
     save_session,
 )
+from app.services.tts import delete_session_files
 from app.utils.response import json_response
 
 router = APIRouter()
@@ -61,4 +62,5 @@ async def upsert_session(request: Request):
 @router.delete("/sessions/{session_id}")
 async def remove_session(session_id: str):
     delete_session(session_id)
+    delete_session_files(session_id)  # JSON과 오디오 파일을 함께 정리
     return json_response({"message": "삭제 완료"})
