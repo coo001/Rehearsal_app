@@ -150,18 +150,19 @@ def format_text_for_elevenlabs(text: str, line: dict | None = None) -> str:
 def _normalize_tts_text(text: str) -> str:
     """TTS 텍스트 보존형 정규화.
 
-    제거: 일반 연기 지문 — (웃으며), (멈추고) 등
-    보존: pause 신호 괄호 — (사이)/(잠시)/(뜸)/(pause)/(beat)/(멈춤)
-          TTS가 자연 호흡으로 처리하도록 원문 유지
-    보존: .../ … — TTS가 자연 포즈로 인식, 쉼표로 평탄화하지 않음
-    보존: —    — cut-off/끊김 신호 유지
-    정규화: -- → — (표기 통일, 의미 보존)
-    제거: !{2,} → ! (과장 억제)
-    정리: 다중 공백
+    pause 신호 변환 (삭제가 아닌 변환):
+      (사이)/(pause)/(beat) → '...' — OpenAI path용; ElevenLabs는 format_text_for_elevenlabs()가 먼저 처리
+      (잠시)/(뜸)/(멈춤)    → '...'
+    그 외 연기 지문 제거: (웃으며), (멈추고) 등
+    보존: ..., …, — (자연 포즈 / cut-off 신호)
+    정규화: -- → —, !{2,} → !
     """
     import re
-    # pause 신호 괄호는 보존, 그 외 지문만 제거
-    text = re.sub(r'\((?!사이|잠시|뜸|pause|beat|멈춤).*?\)', '', text)
+    # pause 신호를 먼저 변환 (이후 제거 단계를 단순화, OpenAI가 literal "사이"를 읽지 않도록)
+    text = re.sub(r'\((?:사이|pause|beat)\)', '...', text)
+    text = re.sub(r'\((?:잠시|뜸|멈춤)\)', '...', text)
+    # 나머지 연기 지문 제거 (pause 신호가 이미 변환됐으므로 negative lookahead 불필요)
+    text = re.sub(r'\(.*?\)', '', text)
     text = text.replace('--', '—')               # -- → — (표기 통일)
     text = re.sub(r'!{2,}', '!', text)           # !!! → !
     text = re.sub(r'\s{2,}', ' ', text)          # 다중 공백 정리

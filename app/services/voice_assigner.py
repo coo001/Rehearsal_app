@@ -123,7 +123,7 @@ def _fallback_assignments(
 
     used_ids = set(existing.values())
     # 미사용 voice 우선, 없으면 전체 pool에서 순환
-    pool = [v for v in valid_voice_ids if v not in used_ids] or list(valid_voice_ids)
+    pool = sorted(v for v in valid_voice_ids if v not in used_ids) or sorted(valid_voice_ids)
 
     return {char: pool[i % len(pool)] for i, char in enumerate(unassigned)}
 
