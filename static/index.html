@@ -911,20 +911,6 @@ function _resetAutoAdvanceUI() {
   if (btn) { btn.textContent = '⏸ 수동 진행'; btn.style.borderColor = ''; btn.style.color = ''; }
 }
 
-// ── run-level 상태 초기화 (역할 변경 전용) ────────────────
-// 상태 3층 구조:
-//   script-level : appState.parsedScript                       → 유지
-//   role-level   : appState.userCharacter, appState.voiceAssignments    → selectCharacter()가 직접 관리
-//   run-level    : 아래 항목들 — 역할이 바뀌면 무효화
-function resetRunStateForRoleChange() {
-  _stopPlayback();
-  appState.audioMap = {};
-  appState.sessionId = null;
-  appState.rehearsalStartIdx = 0;
-  appState.rehearsalEndIdx = null;
-  appState.currentLineIndex = 0;
-}
-
 // 새 대본 로드 시 전체 초기화 — script-level 제외 모두 무효화
 // parsedScript는 호출 측이 직접 설정
 function resetSessionStateForNewScript() {
