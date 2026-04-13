@@ -1,0 +1,344 @@
+/* ── 버튼 ── */
+.btn {
+  padding: 10px 22px;
+  border-radius: 8px;
+  border: none;
+  font-size: 0.93rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.btn:disabled { opacity: 0.38; cursor: not-allowed; }
+.btn-lg {
+  padding: 13px 30px;
+  font-size: 1rem;
+  border-radius: 10px;
+}
+.btn-primary { background: var(--accent); color: #fff; letter-spacing: 0.01em; }
+.btn-primary:hover:not(:disabled) { background: #5d52d8; box-shadow: var(--shadow-cta, 0 4px 16px var(--accent-glow)); transform: translateY(-1px); }
+.btn-success { background: var(--success); color: #000; }
+.btn-success:hover:not(:disabled) { background: #30bb60; }
+.btn-outline {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.btn-outline:hover:not(:disabled) { border-color: var(--border-strong); color: var(--text); }
+.btn-ghost {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  padding: 10px 14px;
+}
+.btn-ghost:hover:not(:disabled) { color: var(--text); }
+.btn-danger { background: var(--danger); color: #fff; }
+.btn-danger:hover:not(:disabled) { background: #d44f4f; }
+
+/* 커스텀 확인 다이얼로그 */
+.confirm-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.6);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 9999;
+}
+.confirm-overlay.hidden { display: none; }
+.confirm-dialog {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 28px 28px 24px;
+  width: min(360px, 90vw);
+  display: flex; flex-direction: column; gap: 12px;
+}
+.confirm-dialog h3 { font-size: 1.05rem; font-weight: 700; }
+.confirm-dialog p  { font-size: 0.88rem; color: var(--muted); line-height: 1.5; }
+.confirm-dialog .confirm-buttons {
+  display: flex; gap: 10px; justify-content: flex-end; margin-top: 4px;
+}
+
+/* ── 캐릭터 카드 ── */
+.character-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+  margin: 8px 0 20px;
+}
+.char-card {
+  background: var(--surface2);
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  padding: 18px 14px;
+  cursor: pointer;
+  transition: all 0.18s;
+  text-align: center;
+}
+.char-card:hover { border-color: var(--border-strong); background: var(--surface3); }
+.char-card.selected { border-color: var(--accent); background: var(--accent-dim); }
+.char-card.user-role { border-color: var(--success); background: var(--success-dim); }
+.char-name { font-weight: 700; font-size: 1rem; margin-bottom: 6px; }
+.char-desc { font-size: 0.83rem; color: var(--muted); line-height: 1.5; }
+
+/* 목소리 배정 테이블 */
+.voice-table { width: 100%; border-collapse: collapse; }
+.voice-table th, .voice-table td {
+  padding: 12px 16px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.92rem;
+}
+.voice-table th { color: var(--muted); font-weight: 600; }
+.voice-preview-btn {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.2s;
+}
+.voice-confirmed { background: rgba(74,222,128,0.07); border-left: 3px solid var(--success); }
+.voice-action-cell { display: flex; gap: 6px; flex-wrap: wrap; }
+.voice-preview-btn:hover { color: var(--accent); border-color: var(--accent); }
+
+/* 진행 바 */
+.progress-bar {
+  width: 100%;
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 12px 0;
+}
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  border-radius: 3px;
+  transition: width 0.3s;
+}
+
+/* 연습 화면 */
+.rehearsal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 22px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.rehearsal-info {
+  display: flex;
+  gap: 18px;
+  font-size: 0.92rem;
+  color: var(--muted);
+}
+.rehearsal-info strong { color: var(--text); }
+
+.script-viewer {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+.script-line {
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.2s;
+}
+.script-line:last-child { border-bottom: none; }
+.script-line.current { background: var(--accent-dim); }
+.script-line.past { opacity: 0.35; }
+.script-line.upcoming { opacity: 0.6; }
+.script-line.direction {
+  font-style: italic;
+  color: var(--muted);
+  font-size: 0.9rem;
+  padding: 10px 22px;
+}
+
+.line-char-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 5px;
+}
+.line-char-label.user-char { color: var(--success); }
+.line-char-label.other-char { color: var(--accent); }
+.line-text { font-size: 1rem; line-height: 1.65; }
+.script-line.current .line-text { font-size: 1.05rem; }
+.line-text.masked { color: var(--muted); letter-spacing: 0.1em; }
+
+.visibility-mode-bar {
+  display: flex; gap: 6px; align-items: center;
+  margin-bottom: 12px; flex-wrap: wrap;
+}
+.visibility-mode-bar span { font-size: 0.88rem; color: var(--muted); margin-right: 4px; }
+.mode-btn {
+  font-size: 0.85rem; padding: 6px 12px; border-radius: 6px;
+  border: 1px solid var(--border); background: transparent;
+  color: var(--text-dim); cursor: pointer; transition: all 0.15s;
+}
+.mode-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* 컨트롤 패널 */
+.control-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 22px 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.control-buttons { display: flex; gap: 10px; align-items: center; }
+
+/* 현재 대사 하이라이트 박스 */
+.current-line-box {
+  background: var(--surface2);
+  border: 2px solid var(--accent);
+  border-radius: 14px;
+  padding: 22px 26px;
+  margin-bottom: 16px;
+  min-height: 88px;
+  box-shadow: var(--shadow-card, none);
+}
+.current-line-box.user-turn { border-color: var(--success); }
+.current-line-box.direction-turn { border-color: var(--border); }
+.turn-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+.turn-badge.ai { background: var(--accent-dim); color: var(--accent); }
+.turn-badge.user { background: var(--success-dim); color: var(--success); }
+.turn-badge.dir { background: rgba(140,140,168,0.12); color: var(--muted); }
+.current-text { font-size: 1.18rem; line-height: 1.75; }
+
+/* 오디오 상태 표시 */
+.audio-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+.audio-wave {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  height: 16px;
+}
+.audio-wave .bar {
+  width: 3px;
+  background: var(--accent);
+  border-radius: 2px;
+  animation: wave 0.8s ease-in-out infinite;
+}
+.audio-wave .bar:nth-child(2) { animation-delay: 0.1s; }
+.audio-wave .bar:nth-child(3) { animation-delay: 0.2s; }
+.audio-wave .bar:nth-child(4) { animation-delay: 0.3s; }
+@keyframes wave {
+  0%, 100% { height: 4px; }
+  50% { height: 14px; }
+}
+.audio-wave.hidden { display: none; }
+
+/* 로딩 스피너 */
+.spinner {
+  display: inline-block;
+  width: 16px; height: 16px;
+  border: 2px solid rgba(124,111,255,0.3);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* 알림 */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  padding: 14px 20px;
+  max-width: 340px;
+  font-size: 0.92rem;
+  box-shadow: var(--shadow-card, 0 8px 32px rgba(0,0,0,0.4));
+  z-index: 999;
+  transform: translateY(80px);
+  opacity: 0;
+  transition: all 0.3s;
+}
+.toast.show { transform: translateY(0); opacity: 1; }
+.toast.error { border-color: var(--danger); }
+.toast.success { border-color: var(--success); }
+
+/* 숨김 */
+.hidden { display: none !important; }
+
+/* 줄 구분 */
+.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+
+/* 진행률 텍스트 */
+.gen-status { font-size: 0.9rem; color: var(--muted); margin-top: 10px; }
+
+/* 샘플 버튼 */
+.sample-btn-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+
+/* 마이크 listening wave (초록색) */
+.audio-wave.listening .bar { background: var(--success); }
+.current-line-box.listening-turn { border-color: var(--success); animation: mic-border-pulse 1.5s ease-in-out infinite; }
+@keyframes mic-border-pulse {
+  0%, 100% { border-color: var(--success); box-shadow: 0 0 0 0 rgba(74,222,128,0); }
+  50% { border-color: #6effa0; box-shadow: 0 0 0 4px rgba(74,222,128,0.15); }
+}
+
+/* 세션 목록 */
+.session-list { display: flex; flex-direction: column; gap: 8px; }
+.session-card {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+  padding: 14px 18px; cursor: pointer; display: flex; justify-content: space-between;
+  align-items: center; transition: border-color 0.15s;
+}
+.session-card:hover { border-color: var(--accent); }
+.session-card-left { display: flex; flex-direction: column; gap: 4px; }
+.session-card-title { font-weight: 600; font-size: 0.95rem; }
+.session-card-meta { font-size: 0.85rem; color: var(--text-dim); }
+.session-card-del {
+  background: none; border: none; color: var(--text-dim); cursor: pointer;
+  font-size: 0.88rem; padding: 5px 9px; border-radius: 5px; flex-shrink: 0;
+}
+.session-card-del:hover { color: #f87171; background: rgba(248,113,113,0.1); }
+
+/* ── 가독성 보정: 얇게 보이는 요소 font-weight 500으로 상향 ── */
+header .header-sub,
+.panel-desc,
+.char-desc,
+.confirm-dialog p,
+.rehearsal-info,
+.script-line.direction,
+.visibility-mode-bar span,
+.audio-status,
+.gen-status,
+.session-card-meta { font-weight: 500; }
+
+select,
+.voice-table td,
+.voice-preview-btn,
+.mode-btn,
+.theme-toggle { font-weight: 500; }
+
+.line-text { font-weight: 500; }
+.current-text { font-weight: 500; }
