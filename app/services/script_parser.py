@@ -455,7 +455,9 @@ def _parse_chunk_json_fallback(chunk: str, idx: int, total: int, known_character
             print(f"[Parser] 청크 {idx+1}/{total} subchunk {part_num}/{n_sub} 성공 — lines={n}")
             results.append(res)
         except Exception as sub_e:
-            print(f"[Parser] 청크 {idx+1}/{total} subchunk {part_num}/{n_sub} 실패: {sub_e}")
+            label = getattr(sub_e, "classification", "")
+            suffix = f" [{label}]" if label else ""
+            print(f"[Parser] 청크 {idx+1}/{total} subchunk {part_num}/{n_sub} 실패{suffix}: {sub_e}")
 
     if not results:
         print(f"[Parser] 청크 {idx+1}/{total} subchunk 모두 실패 → 폐기")
