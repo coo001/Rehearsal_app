@@ -490,9 +490,15 @@ def _parse_chunk_with_retry(chunk: str, idx: int, total: int, known_characters: 
             return _parse_chunk_json_fallback(chunk, idx, total, known_characters)
         except Exception as e:
             if attempt == 0:
-                print(f"[Parser] 청크 {idx+1}/{total} 실패 (재시도 중): {e}")
+                print(
+                    f"[Parser] 청크 {idx+1}/{total} 실패 (재시도 중, len={len(chunk)}자): "
+                    f"{type(e).__name__}: {e} | preview={chunk[:80]!r}"
+                )
             else:
-                print(f"[Parser] 청크 {idx+1}/{total} 최종 실패: {e}")
+                print(
+                    f"[Parser] 청크 {idx+1}/{total} 최종 실패 (len={len(chunk)}자): "
+                    f"{type(e).__name__}: {e}"
+                )
     return None
 
 
@@ -641,20 +647,24 @@ def _enrich_lines(merged: dict) -> dict:
 
 
 def _strip_json_fences(raw: str) -> str:
-    """LLM 응답에서 markdown JSON fence와 선행 텍스트를 제거한다.
+    """LLM 응답에서 markdown JSON fence와 선행/후행 비-JSON 텍스트를 제거한다.
 
-    - ```json ... ``` 또는 ``` ... ``` 형태 제거
+    - ```json ... ``` 또는 ``` ... ``` 형태 제거 (선행 텍스트 있어도 처리)
     - { 이전에 붙은 비-JSON 주석 제거
+    - 마지막 } 이후 후행 텍스트 제거
     """
     raw = raw.strip()
-    if raw.startswith("```"):
-        raw = re.sub(r'^```(?:json)?\s*', '', raw)
-        raw = re.sub(r'\s*```\s*$', '', raw)
-        raw = raw.strip()
+    # fence 마커를 위치와 무관하게 제거 (선행 텍스트 + fence + JSON + fence 형태 대응)
+    raw = re.sub(r'```(?:json)?\s*', '', raw).strip()
+    # { 이전 선행 텍스트 제거
     idx = raw.find('{')
     if idx > 0:
         raw = raw[idx:]
-    return raw
+    # 마지막 } 이후 후행 텍스트 제거 (fence 잔재, 설명문 등)
+    last = raw.rfind('}')
+    if 0 <= last < len(raw) - 1:
+        raw = raw[:last + 1]
+    return raw.strip()
 
 
 def _load_cache(key: str) -> dict | None:
@@ -679,6 +689,9 @@ def _split_into_chunks(text: str, max_chars: int = CHUNK_SIZE) -> list[str]:
 
     한국어 대본의 대사 블록은 빈 줄로 구분되므로,
     빈 줄 기준으로 자르면 대사가 중간에 잘리지 않는다.
+
+    PDF 추출 텍스트처럼 \n\n이 없는 경우 단일 블록이 max_chars를 초과할 수 있다.
+    이 경우 \n 단위로 재분할해 청크 크기를 보장한다.
     """
     blocks = re.split(r'\n\n+', text.strip())
     chunks: list[str] = []
@@ -687,6 +700,26 @@ def _split_into_chunks(text: str, max_chars: int = CHUNK_SIZE) -> list[str]:
 
     for block in blocks:
         block_len = len(block)
+
+        # 단일 블록이 max_chars 초과 → \n 단위로 재분할 (PDF 추출 텍스트 대응)
+        if block_len > max_chars:
+            if current:
+                chunks.append('\n\n'.join(current))
+                current, current_len = [], 0
+            sub_buf: list[str] = []
+            sub_len = 0
+            for line in block.split('\n'):
+                line_len = len(line)
+                if sub_len + line_len + 1 > max_chars and sub_buf:
+                    chunks.append('\n'.join(sub_buf))
+                    sub_buf, sub_len = [line], line_len
+                else:
+                    sub_buf.append(line)
+                    sub_len += line_len + 1
+            if sub_buf:
+                chunks.append('\n'.join(sub_buf))
+            continue
+
         if current_len + block_len + 2 > max_chars and current:
             chunks.append('\n\n'.join(current))
             current = [block]
