@@ -865,7 +865,6 @@ const appState = {
   scriptVisibilityMode:'show_all', // 'show_all' | 'hide_my_lines' | 'hide_all_lines'
   pendingPdfFile:      null,   // PDF 업로드됐지만 아직 분석 안 된 파일
 };
-let autoAdvanceTimer = null;  // goToVoices 자동 진행 타이머 (goBack 시 취소용)
 let countdownTimer = null;    // 자동 진행 타이머
 
 function getScopeEnd() {
@@ -897,13 +896,19 @@ function _stopPlayback() {
   clearCountdown();
   stopListening();
   if (appState.currentAudio) { appState.currentAudio.pause(); appState.currentAudio = null; setAudioStatus(false, ''); }
-  if (autoAdvanceTimer) { clearTimeout(autoAdvanceTimer); autoAdvanceTimer = null; }
 }
 
 // 재생 전체 초기화: 정지 + 위치를 범위 시작점으로 리셋
 function resetPlaybackState() {
   _stopPlayback();
   appState.currentLineIndex = appState.rehearsalStartIdx;
+}
+
+// 자동 진행 UI 리셋 (autoAdvance 끄기 + 버튼 원복)
+function _resetAutoAdvanceUI() {
+  appState.autoAdvance = false;
+  const btn = document.getElementById('auto-advance-toggle');
+  if (btn) { btn.textContent = '⏸ 수동 진행'; btn.style.borderColor = ''; btn.style.color = ''; }
 }
 
 // ── run-level 상태 초기화 (역할 변경 전용) ────────────────
@@ -2221,11 +2226,11 @@ function navigate(dir) {
 
   const { start: scopeStart, end: scopeEnd } = getScopedBounds();
   const newIdx = appState.currentLineIndex + dir;
-  if (newIdx < scopeStart || newIdx > scopeEnd) return;
+  if (newIdx < scopeStart || newIdx > scopeEnd + 1) return;
   appState.currentLineIndex = newIdx;
   updateDisplay();
 
-  // 자동 진행 모드: 다음 라인 자동 처리
+  // 자동 진행 모드: 다음 라인 자동 처리 (완료 상태 scopeEnd+1은 제외)
   if (appState.autoAdvance && newIdx <= scopeEnd) {
     const next = getCanonicalLines()[newIdx];
     if (next.type === 'direction') {
@@ -2270,15 +2275,7 @@ function closeEndRehearsalDialog() {
 function _doEndRehearsal() {
   closeEndRehearsalDialog();
   _stopPlayback();
-  if (appState.autoAdvance) {
-    appState.autoAdvance = false;
-    const toggleBtn = document.getElementById('auto-advance-toggle');
-    if (toggleBtn) {
-      toggleBtn.textContent = '⏸ 수동 진행';
-      toggleBtn.style.borderColor = 'var(--muted)';
-      toggleBtn.style.color = '';
-    }
-  }
+  _resetAutoAdvanceUI();
   goBack(5);
 }
 
