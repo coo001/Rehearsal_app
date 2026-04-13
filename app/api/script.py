@@ -121,6 +121,11 @@ async def parse_pdf_direct(file: UploadFile = File(...)):
                 raise HTTPException(422, "PDF에서 텍스트를 추출할 수 없습니다.")
             full_text = _preprocess_pdf_text(full_text)
             full_text = repair_pdf_text(full_text)
+            print(
+                f"[parse-pdf] 추출 텍스트: {len(full_text)}자, "
+                f"추출 성공 페이지: {sum(1 for p in pages if p.strip())}/{total_pages} | "
+                f"preview={full_text[:200]!r}"
+            )
             data = parse_script(full_text)
         else:
             try:
@@ -140,6 +145,11 @@ async def parse_pdf_direct(file: UploadFile = File(...)):
                     raise HTTPException(422, "PDF direct parse가 잘렸고 텍스트 추출도 실패했습니다. 대본을 나눠 업로드해주세요.")
                 full_text_fb = _preprocess_pdf_text(full_text_fb)
                 full_text_fb = repair_pdf_text(full_text_fb)
+                print(
+                    f"[parse-pdf] fallback 추출 텍스트: {len(full_text_fb)}자, "
+                    f"추출 성공 페이지: {sum(1 for p in pages_fb if p.strip())}/{total_pages} | "
+                    f"preview={full_text_fb[:200]!r}"
+                )
                 data = parse_script(full_text_fb)
 
         return json_response(data)
