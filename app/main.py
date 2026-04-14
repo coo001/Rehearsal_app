@@ -4,6 +4,7 @@
 """
 
 import json
+import logging
 import sys
 
 # Windows cp949 stdout/stderr 에서 em-dash(U+2014) 등 비-cp949 문자 출력 시
@@ -13,6 +14,11 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+from app.core.logging_config import setup_logging
+setup_logging()
+
+logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -28,7 +34,7 @@ app = FastAPI(title="대본 연습 시스템")
 # ─── CORS ──────────────────────────────────────────────────────
 # 허용 origin은 환경변수 ALLOWED_ORIGINS(콤마 구분)로 설정.
 # 미설정 시 localhost:8000만 허용 — 운영 배포 전 반드시 ALLOWED_ORIGINS 지정.
-print(f"[CORS] allowed_origins={ALLOWED_ORIGINS}")
+logger.info("[CORS] allowed_origins=%s", ALLOWED_ORIGINS)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
@@ -84,9 +90,7 @@ async def health():
 # ─── Startup summary ────────────────────────────────────────────
 @app.on_event("startup")
 async def startup_summary():
-    print(
-        f"[Startup] tts_provider={TTS_PROVIDER}"
-        f" | cors={ALLOWED_ORIGINS}"
-        f" | audio_mount={AUDIO_DIR}"
-        f" | static_mount=static"
+    logger.info(
+        "[Startup] tts_provider=%s | cors=%s | audio_mount=%s | static_mount=static",
+        TTS_PROVIDER, ALLOWED_ORIGINS, AUDIO_DIR,
     )

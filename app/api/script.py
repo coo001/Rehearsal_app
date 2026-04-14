@@ -4,10 +4,13 @@
 
 import io
 import json
+import logging
 import re
 import time
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
+
+logger = logging.getLogger(__name__)
 from pypdf import PdfReader
 
 from app.schemas.requests import ParseScriptRequest
@@ -58,7 +61,7 @@ async def parse_script_endpoint(req: ParseScriptRequest):
         raise HTTPException(400, "대본 내용을 입력해주세요.")
 
     input_chars = len(req.script)
-    print(f"[Route] /parse-script 호출 - 입력: {input_chars}자")
+    logger.info(f"[Route] /parse-script 호출 - 입력: {input_chars}자")
 
     try:
         data = parse_script(req.script)
@@ -108,32 +111,29 @@ async def parse_pdf_direct(file: UploadFile = File(...)):
 
         if total_pages > PDF_DIRECT_MAX_PAGES:
             # Fallback: text extraction + 청크 파싱 (기존 경로)
-            print(f"[parse-pdf] {total_pages}페이지 > {PDF_DIRECT_MAX_PAGES} → text fallback")
+            logger.info(f"[parse-pdf] {total_pages}페이지 > {PDF_DIRECT_MAX_PAGES} → text fallback")
             pages: list[str] = []
             for i, page in enumerate(reader.pages):
                 try:
                     pages.append(page.extract_text(extraction_mode="layout") or "")
                 except Exception as e:
-                    print(f"[PDF] 페이지 {i+1} 추출 실패 (skip): {e}")
+                    logger.warning(f"[PDF] 페이지 {i+1} 추출 실패 (skip): {e}")
                     pages.append("")
             full_text = "\n\n".join(p.strip() for p in pages if p.strip())
             if not full_text:
                 raise HTTPException(422, "PDF에서 텍스트를 추출할 수 없습니다.")
             full_text = _preprocess_pdf_text(full_text)
             full_text = repair_pdf_text(full_text)
-            print(
-                f"[parse-pdf] 추출 텍스트: {len(full_text)}자, "
-                f"추출 성공 페이지: {sum(1 for p in pages if p.strip())}/{total_pages} | "
-                f"preview={full_text[:200]!r}"
-            )
+            logger.info("[parse-pdf] 추출 텍스트: %d자, 추출 성공 페이지: %d/%d | preview=%r",
+                        len(full_text), sum(1 for p in pages if p.strip()), total_pages, full_text[:200])
             data = parse_script(full_text)
         else:
             try:
                 data = parse_script_pdf(content, file.filename or "script.pdf", total_pages)
             except PDFTruncationError as e:
                 # direct parse 잘림 또는 JSON 오류 → text extraction + chunked parse fallback
-                print(f"[parse-pdf] direct parse 실패 (LLM 출력 문제): {e}")
-                print(f"[parse-pdf] → text extraction fallback 시도 중...")
+                logger.warning(f"[parse-pdf] direct parse 실패 (LLM 출력 문제): {e}")
+                logger.info(f"[parse-pdf] → text extraction fallback 시도 중...")
                 pages_fb: list[str] = []
                 for i, page in enumerate(reader.pages):
                     try:
@@ -145,11 +145,8 @@ async def parse_pdf_direct(file: UploadFile = File(...)):
                     raise HTTPException(422, "PDF direct parse가 잘렸고 텍스트 추출도 실패했습니다. 대본을 나눠 업로드해주세요.")
                 full_text_fb = _preprocess_pdf_text(full_text_fb)
                 full_text_fb = repair_pdf_text(full_text_fb)
-                print(
-                    f"[parse-pdf] fallback 추출 텍스트: {len(full_text_fb)}자, "
-                    f"추출 성공 페이지: {sum(1 for p in pages_fb if p.strip())}/{total_pages} | "
-                    f"preview={full_text_fb[:200]!r}"
-                )
+                logger.info("[parse-pdf] fallback 추출 텍스트: %d자, 추출 성공 페이지: %d/%d | preview=%r",
+                            len(full_text_fb), sum(1 for p in pages_fb if p.strip()), total_pages, full_text_fb[:200])
                 data = parse_script(full_text_fb)
 
         return json_response(data)
@@ -157,10 +154,10 @@ async def parse_pdf_direct(file: UploadFile = File(...)):
         raise
     except json.JSONDecodeError as e:
         # parse_script() 내부에서 올라온 JSON 오류 (text fallback 경로에서도 실패한 경우)
-        print(f"[parse-pdf] [오류] LLM JSON 파싱 실패 (fallback 이후에도): {e}")
+        logger.warning(f"[parse-pdf] [오류] LLM JSON 파싱 실패 (fallback 이후에도): {e}")
         raise HTTPException(500, f"PDF 파싱 실패 (LLM JSON 오류): {e}")
     except Exception as e:
-        print(f"[parse-pdf] [오류] 예외 발생 ({type(e).__name__}): {e}")
+        logger.warning(f"[parse-pdf] [오류] 예외 발생 ({type(e).__name__}): {e}")
         raise HTTPException(500, f"PDF 파싱 중 오류 ({type(e).__name__}): {e}")
 
 
@@ -180,7 +177,7 @@ async def extract_pdf(file: UploadFile = File(...)):
                 f"{MAX_PDF_PAGES}페이지 이하로 나눠 업로드해주세요."
             )
 
-        print(f"[PDF] 추출 시작 - {total_pages}페이지")
+        logger.info(f"[PDF] 추출 시작 - {total_pages}페이지")
         t_total = time.time()
 
         pages: list[str] = []
@@ -191,10 +188,10 @@ async def extract_pdf(file: UploadFile = File(...)):
                 text = page.extract_text(extraction_mode="layout") or ""
                 elapsed = time.time() - t_page
                 if elapsed > 3.0:
-                    print(f"[PDF] 페이지 {i + 1}/{total_pages} 느림 ({elapsed:.1f}s)")
+                    logger.info(f"[PDF] 페이지 {i + 1}/{total_pages} 느림 ({elapsed:.1f}s)")
                 pages.append(text)
             except Exception as e:
-                print(f"[PDF] 페이지 {i + 1}/{total_pages} 추출 실패 (skip): {e}")
+                logger.warning(f"[PDF] 페이지 {i + 1}/{total_pages} 추출 실패 (skip): {e}")
                 skipped.append(i + 1)
                 pages.append("")
 
@@ -212,10 +209,7 @@ async def extract_pdf(file: UploadFile = File(...)):
 
         total_elapsed = time.time() - t_total
         skip_info = f", 실패 skip {len(skipped)}페이지" if skipped else ""
-        print(
-            f"[PDF] 추출 완료 - {total_pages}페이지{skip_info}, "
-            f"{len(full_text)}자, {total_elapsed:.1f}s"
-        )
+        logger.info("[PDF] 추출 완료 - %d페이지%s, %d자, %.1fs", total_pages, skip_info, len(full_text), total_elapsed)
 
         return json_response({
             "text": full_text,

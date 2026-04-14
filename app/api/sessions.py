@@ -6,9 +6,12 @@ POST   /api/sessions          — 세션 저장 / 업데이트
 DELETE /api/sessions/{id}     — 세션 삭제
 """
 
+import logging
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
+
+logger = logging.getLogger(__name__)
 
 from app.services.session_store import (
     delete_session,
@@ -40,9 +43,7 @@ async def get_session(session_id: str):
         if Path(v.lstrip("/")).exists()
     }
     if len(valid_map) < len(raw_map):
-        print(
-            f"[Session] {session_id}: audio {len(raw_map) - len(valid_map)}개 파일 없음 → 제거"
-        )
+        logger.warning("[Session] %s: audio %d개 파일 없음 → 제거", session_id, len(raw_map) - len(valid_map))
     data["audio_map"] = valid_map
 
     return json_response(data)
@@ -55,7 +56,7 @@ async def upsert_session(request: Request):
     except Exception:
         raise HTTPException(400, "올바른 JSON 형식이 아닙니다.")
     saved = save_session(data)
-    print(f"[Session] 저장 완료: {saved['session_id']} ({saved.get('title', '')})")
+    logger.info("[Session] 저장 완료: %s (%s)", saved['session_id'], saved.get('title', ''))
     return json_response({"session_id": saved["session_id"]})
 
 

@@ -5,15 +5,44 @@ from typing import Optional
 from pydantic import BaseModel
 
 
+class ScriptLine(BaseModel):
+    """대본 한 줄. PARSE_FAST_SYSTEM 출력 구조와 일치."""
+
+    type: str                              # "dialogue" | "direction"
+    text: str
+    # dialogue 전용 필드 (direction에는 없음)
+    character: Optional[str] = None
+    emotion_label: Optional[str] = None
+    intensity: Optional[int] = None        # 1(절제) ~ 5(강렬)
+    tempo: Optional[str] = None            # "느리게" | "보통" | "빠르게"
+    next_cue_delay_ms: Optional[int] = None
+    pause_after: Optional[int] = None
+    speech_act: Optional[str] = None
+    delivery_mode: Optional[str] = None
+    ending_shape: Optional[str] = None
+    phrase_breaks: Optional[str] = None
+    pronunciation_hints: Optional[str] = None
+    normalization_hints: Optional[str] = None
+    # enrich 단계에서 추가되는 필드
+    beat_goal: Optional[str] = None
+    subtext: Optional[str] = None
+    tts_direction: Optional[str] = None
+    listener_pressure: Optional[str] = None
+    avoid: Optional[str] = None
+    # 하위 호환 필드 (구형 단일 emotion 문자열 / tactics)
+    tactics: Optional[str] = None
+    emotion: Optional[str] = None
+
+
 class ParseScriptRequest(BaseModel):
     script: str
 
 
 class GenerateRehearsalRequest(BaseModel):
-    lines: list
-    voice_assignments: dict          # {"캐릭터명": "voice_id"}
+    lines: list[ScriptLine]
+    voice_assignments: dict[str, str]       # {"캐릭터명": "voice_id"}
     user_character: str
-    character_descriptions: dict     # {"캐릭터명": "성격 설명"}
+    character_descriptions: dict[str, str]  # {"캐릭터명": "성격 설명"}
     session_id: Optional[str] = None
 
 
@@ -22,7 +51,7 @@ class SingleLineRequest(BaseModel):
     voice_id: str
     session_id: str
     line_index: int
-    character: Optional[str] = None           # 파일명 슬러그 생성용 (없으면 "char")
+    character: Optional[str] = None            # 파일명 슬러그 생성용 (없으면 "char")
     character_description: Optional[str] = None
     # 구조화 감정 필드
     emotion_label: Optional[str] = None
@@ -49,6 +78,6 @@ class SingleLineRequest(BaseModel):
 
 
 class AutoAssignRequest(BaseModel):
-    characters: list                 # AI 음성이 필요한 캐릭터 목록
-    character_descriptions: dict     # {"캐릭터명": "설명"}
-    user_preferences: Optional[dict] = None  # {"캐릭터명": "더 차분하게"} — 없으면 기본 배정
+    characters: list[str]                       # AI 음성이 필요한 캐릭터 목록
+    character_descriptions: dict[str, str]      # {"캐릭터명": "설명"}
+    user_preferences: Optional[dict[str, str]] = None  # {"캐릭터명": "더 차분하게"} — 없으면 기본 배정

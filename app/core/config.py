@@ -28,6 +28,8 @@ OPENAI_PARSE_PDF_MODEL    = os.environ.get("OPENAI_PARSE_PDF_MODEL",    "gpt-5.4
 OPENAI_ENRICH_MODEL       = os.environ.get("OPENAI_ENRICH_MODEL",       "gpt-5.4")
 # voice assignment: 목소리 매칭 — 비교적 단순
 OPENAI_VOICE_ASSIGN_MODEL = os.environ.get("OPENAI_VOICE_ASSIGN_MODEL", "gpt-5.4-mini")
+# TTS 음성 합성 모델
+OPENAI_TTS_MODEL          = os.environ.get("OPENAI_TTS_MODEL",          "gpt-4o-mini-tts")
 
 # ─── ElevenLabs 설정 ───────────────────────────────────────────
 ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")

@@ -16,7 +16,7 @@ def _tmp_sessions(tmp_path, monkeypatch):
     """각 테스트를 격리된 임시 디렉토리에서 실행."""
     sessions_dir = tmp_path / "sessions"
     sessions_dir.mkdir()
-    monkeypatch.setattr(store, "SESSIONS_DIR", sessions_dir)
+    monkeypatch.setattr(store, "_SESSIONS_DIR", sessions_dir)
     return sessions_dir
 
 
@@ -24,20 +24,20 @@ class TestPathTraversalGuard:
     def test_valid_uuid_passes(self):
         sid = str(uuid.uuid4())
         # 예외 없이 Path 반환
-        path = store._path(sid)
+        path = store._repo._path(sid)
         assert path.suffix == ".json"
 
     def test_dotdot_traversal_blocked(self):
         with pytest.raises(ValueError, match="Invalid session_id"):
-            store._path("../../../etc/passwd")
+            store._repo._path("../../../etc/passwd")
 
     def test_dotdot_in_middle_blocked(self):
         with pytest.raises(ValueError, match="Invalid session_id"):
-            store._path("abc/../../secret")
+            store._repo._path("abc/../../secret")
 
     def test_absolute_path_blocked(self):
         with pytest.raises(ValueError, match="Invalid session_id"):
-            store._path("/etc/passwd")
+            store._repo._path("/etc/passwd")
 
 
 class TestSaveAndLoad:
@@ -73,7 +73,7 @@ class TestSaveAndLoad:
     def test_load_handles_corrupt_json_gracefully(self, tmp_path, monkeypatch):
         sessions_dir = tmp_path / "sessions2"
         sessions_dir.mkdir()
-        monkeypatch.setattr(store, "SESSIONS_DIR", sessions_dir)
+        monkeypatch.setattr(store, "_SESSIONS_DIR", sessions_dir)
         sid = str(uuid.uuid4())
         (sessions_dir / f"{sid}.json").write_text("not json", encoding="utf-8")
         result = store.load_session(sid)

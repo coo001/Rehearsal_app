@@ -5,10 +5,13 @@ POST /api/generate-line       — 단일 줄 생성 (미리듣기 포함)
 DELETE /api/session/{id}      — 세션 파일 정리
 """
 
+import logging
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from fastapi import APIRouter, HTTPException
+
+logger = logging.getLogger(__name__)
 
 from app.schemas.requests import GenerateRehearsalRequest, SingleLineRequest
 from app.services.tts import check_elevenlabs_auth, delete_session_files, generate_tts_file
@@ -20,14 +23,49 @@ from app.utils.response import json_response
 router = APIRouter()
 
 
+def _build_instructions(line: dict, char_desc: str | None) -> str:
+    """provider에 따라 TTS 지시 문자열을 조립한다.
+
+    line dict는 api line 항목 또는 SingleLineRequest.model_dump() 결과와 동일한 구조를 가정한다.
+    char_desc는 화자의 캐릭터 설명 문자열 (없으면 None).
+    """
+    if TTS_PROVIDER == "elevenlabs":
+        return build_elevenlabs_prompt(
+            char_desc=char_desc,
+            beat_goal=line.get("beat_goal"),
+            subtext=line.get("subtext"),
+            tts_direction=line.get("tts_direction"),
+            emotion_label=line.get("emotion_label"),
+            intensity=line.get("intensity"),
+            speech_act=line.get("speech_act"),
+            listener_pressure=line.get("listener_pressure"),
+            phrase_breaks=line.get("phrase_breaks"),
+            ending_shape=line.get("ending_shape"),
+            delivery_mode=line.get("delivery_mode"),
+            avoid=line.get("avoid"),
+            next_cue_delay_ms=line.get("next_cue_delay_ms"),
+        )
+    return build_tts_instructions(
+        char_desc=char_desc,
+        emotion_label=line.get("emotion_label"),
+        intensity=line.get("intensity"),
+        tempo=line.get("tempo"),
+        beat_goal=line.get("beat_goal"),
+        tactics=line.get("tactics"),
+        subtext=line.get("subtext"),
+        tts_direction=line.get("tts_direction"),
+        emotion=line.get("emotion"),
+    )
+
+
 @router.post("/generate-rehearsal")
 async def generate_rehearsal(req: GenerateRehearsalRequest):
     session_id = req.session_id or str(uuid.uuid4())
     audio_map: dict = {}
 
     total_lines = len(req.lines)
-    dialogue_lines = sum(1 for l in req.lines if l.get("type") == "dialogue" and l.get("character") != req.user_character)
-    print(f"[Gen] generate-rehearsal 시작 — total_lines={total_lines}, ai_dialogue={dialogue_lines}, session={session_id[:8]}")
+    dialogue_lines = sum(1 for l in req.lines if l.type == "dialogue" and l.character != req.user_character)
+    logger.info("[Gen] generate-rehearsal 시작 — total_lines=%d, ai_dialogue=%d, session=%s", total_lines, dialogue_lines, session_id[:8])
 
     # 자격 있는 라인을 추려 executor에 넘긴다.
     # exists 체크는 instructions 조립 후 _generate_one() 안에서 수행한다.
@@ -35,14 +73,14 @@ async def generate_rehearsal(req: GenerateRehearsalRequest):
     pending: list[tuple[int, dict]] = []  # (idx, line)
 
     for idx, line in enumerate(req.lines):
-        if line.get("type") != "dialogue":
+        if line.type != "dialogue":
             continue
-        char = line.get("character", "")
+        char = line.character or ""
         if char == req.user_character:
             continue
         if not req.voice_assignments.get(char):
             continue
-        pending.append((idx, line))
+        pending.append((idx, line.model_dump()))
 
     def _generate_one(idx: int, line: dict) -> tuple[str, str] | None:
         """한 라인의 TTS를 생성하고 (str(idx), url) 을 반환. 실패 시 None."""
@@ -50,55 +88,30 @@ async def generate_rehearsal(req: GenerateRehearsalRequest):
         voice_id = req.voice_assignments.get(char)
         try:
             # instructions를 먼저 조립해야 올바른 캐시 키(파일 경로)를 얻을 수 있다.
-            if TTS_PROVIDER == "elevenlabs":
-                instructions = build_elevenlabs_prompt(
-                    char_desc=req.character_descriptions.get(char),
-                    beat_goal=line.get("beat_goal"),
-                    subtext=line.get("subtext"),
-                    tts_direction=line.get("tts_direction"),
-                    emotion_label=line.get("emotion_label"),
-                    intensity=line.get("intensity"),
-                    speech_act=line.get("speech_act"),
-                    listener_pressure=line.get("listener_pressure"),
-                    phrase_breaks=line.get("phrase_breaks"),
-                    ending_shape=line.get("ending_shape"),
-                    delivery_mode=line.get("delivery_mode"),
-                    avoid=line.get("avoid"),
-                    next_cue_delay_ms=line.get("next_cue_delay_ms"),
-                )
-            else:
-                instructions = build_tts_instructions(
-                    char_desc=req.character_descriptions.get(char),
-                    emotion_label=line.get("emotion_label"),
-                    intensity=line.get("intensity"),
-                    tempo=line.get("tempo"),
-                    beat_goal=line.get("beat_goal"),
-                    tactics=line.get("tactics"),
-                    subtext=line.get("subtext"),
-                    tts_direction=line.get("tts_direction"),
-                    emotion=line.get("emotion"),
-                )
+            instructions = _build_instructions(line, req.character_descriptions.get(char))
             audio_path = rehearsal_audio_path(
                 session_id, idx, char, line.get("text", ""), instructions, voice_id or ""
             )
             if audio_path.exists():
                 return str(idx), audio_url(audio_path)
 
-            print(
-                f"[TTS] idx={idx} char={char!r} voice={voice_id} intensity={line.get('intensity')} provider={TTS_PROVIDER}"
-                f"\n  char_desc  : {(req.character_descriptions.get(char) or '')[:60]}"
-                f"\n  beat_goal  : {line.get('beat_goal') or '-'}"
-                f"\n  subtext    : {line.get('subtext') or '-'}"
-                f"\n  speech_act : {line.get('speech_act') or '-'}"
-                f"\n  ending     : {line.get('ending_shape') or '-'}"
-                f"\n  norm_hints : {(line.get('normalization_hints') or '-')[:60]}"
-                f"\n  pron_hints : {(line.get('pronunciation_hints') or '-')[:60]}"
-                f"\n  prompt     : {instructions[:120]!r}{'…' if len(instructions) > 120 else ''}"
+            logger.info(
+                "[TTS] idx=%d char=%r voice=%s intensity=%s provider=%s\n"
+                "  char_desc  : %s\n  beat_goal  : %s\n  subtext    : %s\n"
+                "  speech_act : %s\n  ending     : %s\n  norm_hints : %s\n"
+                "  pron_hints : %s\n  prompt     : %r%s",
+                idx, char, voice_id, line.get('intensity'), TTS_PROVIDER,
+                (req.character_descriptions.get(char) or '')[:60],
+                line.get('beat_goal') or '-', line.get('subtext') or '-',
+                line.get('speech_act') or '-', line.get('ending_shape') or '-',
+                (line.get('normalization_hints') or '-')[:60],
+                (line.get('pronunciation_hints') or '-')[:60],
+                instructions[:120], '…' if len(instructions) > 120 else '',
             )
             generate_tts_file(voice_id, line["text"], instructions, audio_path, intensity=line.get("intensity", 2), line=line)
             return str(idx), audio_url(audio_path)
         except Exception as e:
-            print(f"[경고] line {idx} 음성 생성 실패: {e}")
+            logger.warning("[Gen] line %d 음성 생성 실패: %s", idx, e)
             return None
 
     if pending:
@@ -124,34 +137,7 @@ async def generate_single_line(req: SingleLineRequest):
     char = req.character or "char"
 
     # instructions를 먼저 조립해 올바른 캐시 키(파일 경로)를 얻는다.
-    if TTS_PROVIDER == "elevenlabs":
-        instructions = build_elevenlabs_prompt(
-            char_desc=req.character_description,
-            beat_goal=req.beat_goal,
-            subtext=req.subtext,
-            tts_direction=req.tts_direction,
-            emotion_label=req.emotion_label,
-            intensity=req.intensity,
-            speech_act=req.speech_act,
-            listener_pressure=req.listener_pressure,
-            phrase_breaks=req.phrase_breaks,
-            ending_shape=req.ending_shape,
-            delivery_mode=req.delivery_mode,
-            avoid=req.avoid,
-            next_cue_delay_ms=req.next_cue_delay_ms,
-        )
-    else:
-        instructions = build_tts_instructions(
-            char_desc=req.character_description,
-            emotion_label=req.emotion_label,
-            intensity=req.intensity,
-            tempo=req.tempo,
-            beat_goal=req.beat_goal,
-            tactics=req.tactics,
-            subtext=req.subtext,
-            tts_direction=req.tts_direction,
-            emotion=req.emotion,
-        )
+    instructions = _build_instructions(req.model_dump(), req.character_description)
 
     audio_path = single_line_audio_path(
         req.session_id, req.line_index, char, req.text, instructions, req.voice_id or ""
