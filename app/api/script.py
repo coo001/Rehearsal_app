@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 from pypdf import PdfReader
 
 from app.schemas.requests import ParseScriptRequest
+from app.schemas.responses import ExtractPdfResponse, ParsedScriptResponse
 from app.services.script_parser import parse_script, parse_script_pdf, PDFTruncationError
 from app.utils.response import json_response
 
@@ -55,7 +56,7 @@ def repair_pdf_text(text: str) -> str:
     return "\n".join(fix_line(l) for l in text.split("\n"))
 
 
-@router.post("/parse-script")
+@router.post("/parse-script", response_model=ParsedScriptResponse)
 async def parse_script_endpoint(req: ParseScriptRequest):
     if not req.script.strip():
         raise HTTPException(400, "대본 내용을 입력해주세요.")
@@ -88,7 +89,7 @@ PDF_DIRECT_MAX_PAGES = 40  # 이 이하: Responses API direct parse / 초과: te
 # pypdf text extraction은 한국어 극본에서 불완전한 경우가 많아 fallback으로만 사용
 
 
-@router.post("/parse-pdf")
+@router.post("/parse-pdf", response_model=ParsedScriptResponse)
 async def parse_pdf_direct(file: UploadFile = File(...)):
     """PDF를 GPT-4o에 직접 전달해 대본을 파싱한다.
 
@@ -161,7 +162,7 @@ async def parse_pdf_direct(file: UploadFile = File(...)):
         raise HTTPException(500, f"PDF 파싱 중 오류 ({type(e).__name__}): {e}")
 
 
-@router.post("/extract-pdf")
+@router.post("/extract-pdf", response_model=ExtractPdfResponse)
 async def extract_pdf(file: UploadFile = File(...)):
     if not (file.filename or "").lower().endswith(".pdf"):
         raise HTTPException(400, "PDF 파일만 지원합니다.")

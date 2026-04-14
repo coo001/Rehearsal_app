@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException
 logger = logging.getLogger(__name__)
 
 from app.schemas.requests import GenerateRehearsalRequest, SingleLineRequest
+from app.schemas.responses import ElevenLabsCheckResponse, GenerateLineResponse, GenerateRehearsalResponse, MessageResponse
 from app.services.tts import check_elevenlabs_auth, delete_session_files, generate_tts_file
 from app.utils.audio_paths import audio_url, rehearsal_audio_path, single_line_audio_path
 from app.core.config import TTS_PROVIDER
@@ -58,7 +59,7 @@ def _build_instructions(line: dict, char_desc: str | None) -> str:
     )
 
 
-@router.post("/generate-rehearsal")
+@router.post("/generate-rehearsal", response_model=GenerateRehearsalResponse)
 async def generate_rehearsal(req: GenerateRehearsalRequest):
     session_id = req.session_id or str(uuid.uuid4())
     audio_map: dict = {}
@@ -132,7 +133,7 @@ async def generate_rehearsal(req: GenerateRehearsalRequest):
     })
 
 
-@router.post("/generate-line")
+@router.post("/generate-line", response_model=GenerateLineResponse)
 async def generate_single_line(req: SingleLineRequest):
     char = req.character or "char"
 
@@ -156,14 +157,14 @@ async def generate_single_line(req: SingleLineRequest):
     return {"audio_url": audio_url(audio_path)}
 
 
-@router.get("/check-elevenlabs")
+@router.get("/check-elevenlabs", response_model=ElevenLabsCheckResponse)
 async def check_elevenlabs():
     """ElevenLabs API key 설정 및 인증 상태 확인 (개발용)."""
     result = check_elevenlabs_auth()
     return json_response({"provider": "elevenlabs", **result})
 
 
-@router.delete("/session/{session_id}")
+@router.delete("/session/{session_id}", response_model=MessageResponse)
 async def cleanup_session(session_id: str):
     delete_session_files(session_id)
     return json_response({"message": "세션 삭제 완료"})

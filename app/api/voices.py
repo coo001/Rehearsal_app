@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.core.config import TTS_VOICES
 from app.schemas.requests import AutoAssignRequest
+from app.schemas.responses import AutoAssignResponse, VoicesResponse
 from app.services.voice_assigner import auto_assign_voices
 from app.utils.response import json_response
 
@@ -14,12 +15,12 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-@router.get("/voices")
+@router.get("/voices", response_model=VoicesResponse)
 async def get_voices():
     return json_response({"voices": TTS_VOICES})
 
 
-@router.post("/auto-assign-voices")
+@router.post("/auto-assign-voices", response_model=AutoAssignResponse)
 async def auto_assign_voices_endpoint(req: AutoAssignRequest):
     if not req.characters:
         logger.info("[API] auto-assign-voices — 캐릭터 목록 비어 있음, 빈 배정 반환")

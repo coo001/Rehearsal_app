@@ -13,6 +13,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 logger = logging.getLogger(__name__)
 
+from app.schemas.responses import MessageResponse, SessionDetailResponse, SessionListResponse, UpsertSessionResponse
 from app.services.session_store import (
     delete_session,
     list_sessions,
@@ -25,12 +26,12 @@ from app.utils.response import json_response
 router = APIRouter()
 
 
-@router.get("/sessions")
+@router.get("/sessions", response_model=SessionListResponse)
 async def get_sessions():
     return json_response({"sessions": list_sessions()})
 
 
-@router.get("/sessions/{session_id}")
+@router.get("/sessions/{session_id}", response_model=SessionDetailResponse)
 async def get_session(session_id: str):
     data = load_session(session_id)
     if not data:
@@ -49,7 +50,7 @@ async def get_session(session_id: str):
     return json_response(data)
 
 
-@router.post("/sessions")
+@router.post("/sessions", response_model=UpsertSessionResponse)
 async def upsert_session(request: Request):
     try:
         data = await request.json()
@@ -60,7 +61,7 @@ async def upsert_session(request: Request):
     return json_response({"session_id": saved["session_id"]})
 
 
-@router.delete("/sessions/{session_id}")
+@router.delete("/sessions/{session_id}", response_model=MessageResponse)
 async def remove_session(session_id: str):
     delete_session(session_id)
     delete_session_files(session_id)  # JSON과 오디오 파일을 함께 정리
