@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 from app.schemas.requests import GenerateRehearsalRequest, SingleLineRequest
 from app.schemas.responses import ElevenLabsCheckResponse, GenerateLineResponse, GenerateRehearsalResponse, MessageResponse
 from app.services.audio_storage import audio_exists, audio_get_url
+from app.services.job_runner import run_job
 from app.services.tts import check_elevenlabs_auth, delete_session_files, generate_tts_file
 from app.utils.audio_paths import rehearsal_audio_path, single_line_audio_path
 from app.core.config import TTS_PROVIDER
@@ -63,17 +64,14 @@ def _build_instructions(line: dict, char_desc: str | None) -> str:
 @router.post("/generate-rehearsal", response_model=GenerateRehearsalResponse)
 async def generate_rehearsal(req: GenerateRehearsalRequest):
     session_id = req.session_id or str(uuid.uuid4())
-    audio_map: dict = {}
 
     total_lines = len(req.lines)
     dialogue_lines = sum(1 for l in req.lines if l.type == "dialogue" and l.character != req.user_character)
-    logger.info("[Gen] generate-rehearsal 시작 — total_lines=%d, ai_dialogue=%d, session=%s", total_lines, dialogue_lines, session_id[:8])
+    logger.info("[Gen] generate-rehearsal 시작 — total_lines=%d, ai_dialogue=%d, session=%s",
+                total_lines, dialogue_lines, session_id[:8])
 
-    # 자격 있는 라인을 추려 executor에 넘긴다.
-    # exists 체크는 instructions 조립 후 _generate_one() 안에서 수행한다.
-    # (instructions가 캐시 키에 포함되므로 미리 체크하면 키가 맞지 않음)
-    pending: list[tuple[int, dict]] = []  # (idx, line)
-
+    # 자격 있는 라인 사전 필터
+    pending: list[tuple[int, dict]] = []
     for idx, line in enumerate(req.lines):
         if line.type != "dialogue":
             continue
@@ -89,7 +87,6 @@ async def generate_rehearsal(req: GenerateRehearsalRequest):
         char = line.get("character", "")
         voice_id = req.voice_assignments.get(char)
         try:
-            # instructions를 먼저 조립해야 올바른 캐시 키(파일 경로)를 얻을 수 있다.
             instructions = _build_instructions(line, req.character_descriptions.get(char))
             audio_path = rehearsal_audio_path(
                 session_id, idx, char, line.get("text", ""), instructions, voice_id or ""
@@ -110,28 +107,41 @@ async def generate_rehearsal(req: GenerateRehearsalRequest):
                 (line.get('pronunciation_hints') or '-')[:60],
                 instructions[:120], '…' if len(instructions) > 120 else '',
             )
-            generate_tts_file(voice_id, line["text"], instructions, audio_path, intensity=line.get("intensity", 2), line=line)
+            generate_tts_file(voice_id, line["text"], instructions, audio_path,
+                              intensity=line.get("intensity", 2), line=line)
             return str(idx), audio_get_url(audio_path)
         except Exception as e:
             logger.warning("[Gen] line %d 음성 생성 실패: %s", idx, e)
             return None
 
-    if pending:
-        # MAX_WORKERS=4 — script_parser.py와 동일한 보수적 설정
-        # ElevenLabs rate limit 초과 시 2로 낮출 것
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            futures = {executor.submit(_generate_one, idx, line): idx for idx, line in pending}
-            for future in as_completed(futures):
-                result = future.result()
-                if result is not None:
-                    audio_map[result[0]] = result[1]
+    def _run_generate() -> dict:
+        audio_map: dict = {}
+        if pending:
+            # MAX_WORKERS=4 — ElevenLabs rate limit 초과 시 2로 낮출 것
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                futures = {executor.submit(_generate_one, idx, line): idx for idx, line in pending}
+                for future in as_completed(futures):
+                    result = future.result()
+                    if result is not None:
+                        audio_map[result[0]] = result[1]
+        return {
+            "session_id": session_id,
+            "audio_map": audio_map,
+            "total_lines": total_lines,
+            "user_character": req.user_character,
+        }
 
-    return json_response({
-        "session_id": session_id,
-        "audio_map": audio_map,
-        "total_lines": len(req.lines),
-        "user_character": req.user_character,
-    })
+    _, data = run_job(
+        "generate_rehearsal",
+        _run_generate,
+        session_id=session_id,
+        result_summary=lambda d: {
+            "session_id": d["session_id"],
+            "audio_count": len(d["audio_map"]),
+            "total_lines": d["total_lines"],
+        },
+    )
+    return json_response(data)
 
 
 @router.post("/generate-line", response_model=GenerateLineResponse)
