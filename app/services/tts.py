@@ -6,10 +6,10 @@ check_elevenlabs_auth() — ElevenLabs 인증 상태 확인 (개발용)
 """
 
 import logging
-import shutil
 from pathlib import Path
 
-from app.core.config import AUDIO_DIR, ELEVENLABS_API_KEY, TTS_PROVIDER
+from app.core.config import ELEVENLABS_API_KEY, TTS_PROVIDER
+from app.services.audio_storage import audio_delete_session, audio_save
 from app.services.tts_elevenlabs import generate_elevenlabs
 from app.services.tts_openai import generate_openai
 from app.services.tts_text import TtsInput, build_tts_input, format_text_for_elevenlabs
@@ -32,19 +32,16 @@ def generate_tts_file(
     tts = build_tts_input(text, instructions, intensity)
     _log_tts_preview(TTS_PROVIDER, voice_id, text_original, tts, line)
     if TTS_PROVIDER == "elevenlabs":
-        generate_elevenlabs(voice_id, tts.cleaned_text, tts.instructions, audio_path, tts.intensity, tts.speech_mode)
+        data = generate_elevenlabs(voice_id, tts.cleaned_text, tts.instructions, tts.intensity, tts.speech_mode)
     else:
         _log_openai_input(voice_id, tts.cleaned_text, tts.instructions)
-        generate_openai(voice_id, tts.cleaned_text, tts.instructions, audio_path)
+        data = generate_openai(voice_id, tts.cleaned_text, tts.instructions)
+    audio_save(audio_path, data)
 
 
 def delete_session_files(session_id: str) -> None:
-    """세션 디렉토리와 하위 파일 전체 삭제."""
-    session_dir = AUDIO_DIR / session_id
-    if not session_dir.resolve().is_relative_to(AUDIO_DIR.resolve()):
-        raise ValueError(f"Invalid session_id: {session_id!r}")
-    if session_dir.exists():
-        shutil.rmtree(session_dir)
+    """세션 오디오 파일 전체 삭제."""
+    audio_delete_session(session_id)
 
 
 def check_elevenlabs_auth() -> dict:

@@ -55,9 +55,7 @@ def rehearsal_audio_path(
     slug = slugify(character)
     h = content_hash(text, instructions, voice_id)
     filename = f"{idx:03d}_{slug}_{h}.mp3"
-    path = AUDIO_DIR / session_id / filename
-    path.parent.mkdir(parents=True, exist_ok=True)
-    return path
+    return AUDIO_DIR / session_id / filename
 
 
 def single_line_audio_path(

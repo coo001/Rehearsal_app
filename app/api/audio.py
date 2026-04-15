@@ -15,8 +15,9 @@ logger = logging.getLogger(__name__)
 
 from app.schemas.requests import GenerateRehearsalRequest, SingleLineRequest
 from app.schemas.responses import ElevenLabsCheckResponse, GenerateLineResponse, GenerateRehearsalResponse, MessageResponse
+from app.services.audio_storage import audio_exists, audio_get_url
 from app.services.tts import check_elevenlabs_auth, delete_session_files, generate_tts_file
-from app.utils.audio_paths import audio_url, rehearsal_audio_path, single_line_audio_path
+from app.utils.audio_paths import rehearsal_audio_path, single_line_audio_path
 from app.core.config import TTS_PROVIDER
 from app.utils.instructions import build_elevenlabs_prompt, build_tts_instructions
 from app.utils.response import json_response
@@ -93,8 +94,8 @@ async def generate_rehearsal(req: GenerateRehearsalRequest):
             audio_path = rehearsal_audio_path(
                 session_id, idx, char, line.get("text", ""), instructions, voice_id or ""
             )
-            if audio_path.exists():
-                return str(idx), audio_url(audio_path)
+            if audio_exists(audio_path):
+                return str(idx), audio_get_url(audio_path)
 
             logger.info(
                 "[TTS] idx=%d char=%r voice=%s intensity=%s provider=%s\n"
@@ -110,7 +111,7 @@ async def generate_rehearsal(req: GenerateRehearsalRequest):
                 instructions[:120], '…' if len(instructions) > 120 else '',
             )
             generate_tts_file(voice_id, line["text"], instructions, audio_path, intensity=line.get("intensity", 2), line=line)
-            return str(idx), audio_url(audio_path)
+            return str(idx), audio_get_url(audio_path)
         except Exception as e:
             logger.warning("[Gen] line %d 음성 생성 실패: %s", idx, e)
             return None
@@ -144,7 +145,7 @@ async def generate_single_line(req: SingleLineRequest):
         req.session_id, req.line_index, char, req.text, instructions, req.voice_id or ""
     )
 
-    if not audio_path.exists():
+    if not audio_exists(audio_path):
         try:
             line_hints = {
                 "pronunciation_hints": req.pronunciation_hints,
@@ -154,7 +155,7 @@ async def generate_single_line(req: SingleLineRequest):
         except Exception as e:
             raise HTTPException(500, f"음성 생성 실패: {e}")
 
-    return {"audio_url": audio_url(audio_path)}
+    return {"audio_url": audio_get_url(audio_path)}
 
 
 @router.get("/check-elevenlabs", response_model=ElevenLabsCheckResponse)

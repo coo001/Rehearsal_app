@@ -1,7 +1,5 @@
 """ElevenLabs TTS provider."""
 
-from pathlib import Path
-
 from app.core.config import ELEVENLABS_API_KEY, ELEVENLABS_MODEL_ID
 
 # intensity (1~5) → (stability, style) 기준값
@@ -55,11 +53,10 @@ def generate_elevenlabs(
     voice_id: str,
     text: str,
     instructions: str,
-    audio_path: Path,
     intensity: int,
     speech_mode: str = "neutral",
-) -> None:
-    """ElevenLabs TTS 호출.
+) -> bytes:
+    """ElevenLabs TTS 호출 후 mp3 bytes 반환. 파일 저장은 호출자(tts.py)가 담당.
 
     3단 voice_settings 결정:
       1) intensity(1~5) 기준값
@@ -95,4 +92,4 @@ def generate_elevenlabs(
             use_speaker_boost=False,
         ),
     )
-    audio_path.write_bytes(b"".join(audio_iter))
+    return b"".join(audio_iter)
