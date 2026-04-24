@@ -19,6 +19,7 @@ def build_tts_instructions(
     subtext: str | None = None,     # 말 아래 숨겨진 압박/의미
     tts_direction: str | None = None,
     emotion: str | None = None,     # 하위 호환: 구형 단일 emotion 문자열
+    avoid: str | None = None,       # 금지할 읽기 방식
 ) -> str:
     # ElevenLabs 경로와 동일한 간결한 구조 유지
     # char_desc / tactics는 analytical → TTS 기계적 읽기 유발 → 제거
@@ -43,6 +44,9 @@ def build_tts_instructions(
 
     if tempo and tempo != "보통":
         parts.append(tempo)
+
+    if avoid:
+        parts.append(f"금지: {avoid}")
 
     return "\n".join(parts)
 

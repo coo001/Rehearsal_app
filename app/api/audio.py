@@ -58,6 +58,7 @@ def _build_instructions(line: dict, char_desc: str | None) -> str:
         subtext=line.get("subtext"),
         tts_direction=line.get("tts_direction"),
         emotion=line.get("emotion"),
+        avoid=line.get("avoid"),
     )
 
 
@@ -94,6 +95,15 @@ async def generate_rehearsal(req: GenerateRehearsalRequest):
             if audio_exists(audio_path):
                 return str(idx), audio_get_url(audio_path)
 
+            # ElevenLabs prosody 개선을 위해 인접 대사 텍스트 추출
+            prev_text: str | None = None
+            next_text: str | None = None
+            if TTS_PROVIDER == "elevenlabs":
+                if idx > 0 and req.lines[idx - 1].type == "dialogue":
+                    prev_text = req.lines[idx - 1].text
+                if idx < len(req.lines) - 1 and req.lines[idx + 1].type == "dialogue":
+                    next_text = req.lines[idx + 1].text
+
             logger.info(
                 "[TTS] idx=%d char=%r voice=%s intensity=%s provider=%s\n"
                 "  char_desc  : %s\n  beat_goal  : %s\n  subtext    : %s\n"
@@ -108,7 +118,8 @@ async def generate_rehearsal(req: GenerateRehearsalRequest):
                 instructions[:120], '…' if len(instructions) > 120 else '',
             )
             generate_tts_file(voice_id, line["text"], instructions, audio_path,
-                              intensity=line.get("intensity", 2), line=line)
+                              intensity=line.get("intensity", 2), line=line,
+                              prev_text=prev_text, next_text=next_text)
             return str(idx), audio_get_url(audio_path)
         except Exception as e:
             logger.warning("[Gen] line %d 음성 생성 실패: %s", idx, e)

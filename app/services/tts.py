@@ -24,6 +24,8 @@ def generate_tts_file(
     audio_path: Path,
     intensity: int = 2,
     line: dict | None = None,
+    prev_text: str | None = None,
+    next_text: str | None = None,
 ) -> None:
     """TTS_PROVIDER에 따라 OpenAI 또는 ElevenLabs로 음성 생성 후 mp3 저장."""
     text_original = text
@@ -32,7 +34,8 @@ def generate_tts_file(
     tts = build_tts_input(text, instructions, intensity)
     _log_tts_preview(TTS_PROVIDER, voice_id, text_original, tts, line)
     if TTS_PROVIDER == "elevenlabs":
-        data = generate_elevenlabs(voice_id, tts.cleaned_text, tts.instructions, tts.intensity, tts.speech_mode)
+        data = generate_elevenlabs(voice_id, tts.cleaned_text, tts.instructions, tts.intensity, tts.speech_mode,
+                                   prev_text=prev_text, next_text=next_text)
     else:
         _log_openai_input(voice_id, tts.cleaned_text, tts.instructions)
         data = generate_openai(voice_id, tts.cleaned_text, tts.instructions)

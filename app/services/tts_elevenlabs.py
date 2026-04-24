@@ -3,13 +3,14 @@
 from app.core.config import ELEVENLABS_API_KEY, ELEVENLABS_MODEL_ID
 
 # intensity (1~5) → (stability, style) 기준값
-# 자연스러운 대화 우선 — style은 0.20을 넘지 않음 (과장 억제)
+# intensity 1~3: 자연스러운 대화 우선 (style 절제)
+# intensity 4~5: 감정이 표면에 올라올 때 style 허용 (최대 0.35)
 _INTENSITY_SETTINGS: dict[int, tuple[float, float]] = {
     1: (0.65, 0.05),  # 매우 절제 (평온, 숨김, 무감각)
     2: (0.60, 0.08),  # 차분 (기본 대화, 억제된 감정)
     3: (0.52, 0.13),  # 보통 (감정이 자연스럽게 드러남)
-    4: (0.48, 0.17),  # 다소 강함 (감정이 표면에 올라옴)
-    5: (0.45, 0.20),  # 강렬 (최대 — 장면 전체에서 드물게)
+    4: (0.46, 0.25),  # 다소 강함 (감정이 표면에 올라옴)
+    5: (0.42, 0.35),  # 강렬 (최대 — 장면 전체에서 드물게)
 }
 
 # speech_mode → (stability_delta, style_delta)
@@ -55,6 +56,8 @@ def generate_elevenlabs(
     instructions: str,
     intensity: int,
     speech_mode: str = "neutral",
+    prev_text: str | None = None,
+    next_text: str | None = None,
 ) -> bytes:
     """ElevenLabs TTS 호출 후 mp3 bytes 반환. 파일 저장은 호출자(tts.py)가 담당.
 
@@ -62,6 +65,8 @@ def generate_elevenlabs(
       1) intensity(1~5) 기준값
       2) speech_mode 보조 축 offset
       3) instruction signal 미세 조정
+
+    prev_text/next_text: 앞뒤 대사 컨텍스트 — ElevenLabs가 prosody 결정에 활용.
     """
     if not ELEVENLABS_API_KEY:
         raise RuntimeError("ELEVENLABS_API_KEY가 설정되지 않았습니다.")
@@ -77,7 +82,7 @@ def generate_elevenlabs(
 
     s_delta, st_delta = _voice_hints(instructions)
     stability = max(0.20, min(0.90, stability + s_delta))
-    style     = max(0.00, min(0.20, style     + st_delta))
+    style     = max(0.00, min(0.35, style     + st_delta))
 
     el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
     audio_iter = el_client.text_to_speech.convert(
@@ -89,7 +94,9 @@ def generate_elevenlabs(
             stability=stability,
             similarity_boost=0.78,
             style=style,
-            use_speaker_boost=False,
+            use_speaker_boost=True,
         ),
+        previous_text=prev_text,
+        next_text=next_text,
     )
     return b"".join(audio_iter)

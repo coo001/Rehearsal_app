@@ -37,6 +37,60 @@ def _parse_hint_rules(hints: str) -> list[tuple[str, str]]:
     return rules
 
 
+_TRAILING_SHAPE_MAP: dict[str, str] = {
+    "흘러나감": "...",
+    "열림":    "...",
+    "삼킴":    "—",
+}
+
+
+def _apply_ending_shape(text: str, ending_shape: str | None) -> str:
+    """ending_shape → 텍스트 끝 구두점 조정.
+
+    흘러나감/열림 → '...'  (문장이 미완으로 열림)
+    삼킴          → '—'   (말이 잘림)
+    그 외(닫힘/눌림/올라감)는 텍스트 그대로 둔다.
+    """
+    tail = _TRAILING_SHAPE_MAP.get(ending_shape or "")
+    if not tail:
+        return text
+    stripped = text.rstrip()
+    if stripped.endswith(tail) or stripped.endswith("…"):
+        return text
+    stripped = re.sub(r"[.!?。]+$", "", stripped)
+    return stripped + tail
+
+
+def _apply_phrase_breaks(text: str, phrase_breaks: str | None) -> str:
+    """phrase_breaks 설명 → 텍스트 내 쉼표 삽입 (보수적).
+
+    이미 내부 쉼(,  ...  …)이 있으면 건드리지 않는다.
+    단어가 4개 미만이면 건드리지 않는다.
+    키워드 매칭으로 삽입 위치 결정:
+      '마지막 단어 직전'  → 마지막 단어 앞에 ','
+      '중간' | '두 번째'  → 텍스트 중간 단어 뒤에 ','
+    """
+    if not phrase_breaks:
+        return text
+    if re.search(r"[,，…]|\.{2,}", text):
+        return text
+
+    words = text.split()
+    if len(words) < 4:
+        return text
+
+    pb = phrase_breaks
+    if "마지막" in pb and ("단어" in pb or "직전" in pb):
+        words.insert(-1, ",")
+        return " ".join(words).replace(" , ", ", ")
+    if "중간" in pb or "두 번째" in pb:
+        mid = max(2, (len(words) + 1) // 2)
+        words[mid - 1] = words[mid - 1] + ","
+        return " ".join(words)
+
+    return text
+
+
 def format_text_for_elevenlabs(text: str, line: dict | None = None) -> str:
     """ElevenLabs 전용 텍스트 포맷팅. _normalize_tts_text 실행 전에 적용한다.
 
@@ -45,6 +99,8 @@ def format_text_for_elevenlabs(text: str, line: dict | None = None) -> str:
          (잠시)/(뜸)/(멈춤)   → '...' (긴 쉼)
     2. normalization_hints — 숫자/약어/외래어 → 읽기형 치환
     3. pronunciation_hints — 발음 주의 단어 → 표기형 치환
+    4. phrase_breaks → 내부 쉼표 삽입 (이미 쉼 있으면 스킵)
+    5. ending_shape  → 텍스트 끝 구두점 조정
     """
     text = re.sub(r"\((?:사이|pause|beat)\)", ",", text)
     text = re.sub(r"\((?:잠시|뜸|멈춤)\)", "...", text)
@@ -59,6 +115,9 @@ def format_text_for_elevenlabs(text: str, line: dict | None = None) -> str:
         if isinstance(pron, str) and pron.strip():
             for src, dst in _parse_hint_rules(pron):
                 text = text.replace(src, dst)
+
+        text = _apply_phrase_breaks(text, line.get("phrase_breaks"))
+        text = _apply_ending_shape(text, line.get("ending_shape"))
 
     return re.sub(r"\s{2,}", " ", text).strip()
 
