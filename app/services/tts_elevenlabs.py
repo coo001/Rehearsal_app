@@ -23,8 +23,8 @@ _SPEECH_MODE_OFFSETS: dict[str, tuple[float, float]] = {
 }
 
 
-def _voice_hints(instructions: str) -> tuple[float, float]:
-    """instructions에서 delivery signal을 추출해 (stability_delta, style_delta) 반환."""
+def _voice_hints(instructions: str, listener_pressure: str | None = None) -> tuple[float, float]:
+    """instructions + listener_pressure에서 (stability_delta, style_delta) 반환."""
     if not instructions:
         return 0.0, 0.0
 
@@ -36,7 +36,7 @@ def _voice_hints(instructions: str) -> tuple[float, float]:
     elif '올라감' in t or '열림' in t or '흘러나감' in t:
         s -= 0.03
 
-    if '압박: 강함' in t:
+    if listener_pressure == "강함":
         s -= 0.05
         st += 0.05
 
@@ -58,6 +58,7 @@ def generate_elevenlabs(
     speech_mode: str = "neutral",
     prev_text: str | None = None,
     next_text: str | None = None,
+    listener_pressure: str | None = None,
 ) -> bytes:
     """ElevenLabs TTS 호출 후 mp3 bytes 반환. 파일 저장은 호출자(tts.py)가 담당.
 
@@ -80,7 +81,7 @@ def generate_elevenlabs(
     stability += s_mode
     style     += st_mode
 
-    s_delta, st_delta = _voice_hints(instructions)
+    s_delta, st_delta = _voice_hints(instructions, listener_pressure=listener_pressure)
     stability = max(0.20, min(0.90, stability + s_delta))
     style     = max(0.00, min(0.35, style     + st_delta))
 

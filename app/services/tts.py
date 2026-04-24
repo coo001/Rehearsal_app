@@ -34,8 +34,9 @@ def generate_tts_file(
     tts = build_tts_input(text, instructions, intensity)
     _log_tts_preview(TTS_PROVIDER, voice_id, text_original, tts, line)
     if TTS_PROVIDER == "elevenlabs":
+        listener_pressure = (line or {}).get("listener_pressure")
         data = generate_elevenlabs(voice_id, tts.cleaned_text, tts.instructions, tts.intensity, tts.speech_mode,
-                                   prev_text=prev_text, next_text=next_text)
+                                   prev_text=prev_text, next_text=next_text, listener_pressure=listener_pressure)
     else:
         _log_openai_input(voice_id, tts.cleaned_text, tts.instructions)
         data = generate_openai(voice_id, tts.cleaned_text, tts.instructions)

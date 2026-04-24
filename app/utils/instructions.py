@@ -34,7 +34,7 @@ def build_tts_instructions(
 
     # intensity 3 이상만 감정 명시 (기본 2는 절제로 간주)
     if emotion_label and intensity is not None and intensity >= 3:
-        level = ["", "", "emerging", "strong", "explosive"][max(0, min(4, intensity - 1))]
+        level = {3: "emerging", 4: "strong", 5: "explosive"}.get(intensity, "")
         parts.append(f"Emotion: {level} {emotion_label}.")
     elif emotion and not emotion_label and intensity is not None and intensity >= 3:
         parts.append(f"Emotion: {emotion}")
@@ -126,7 +126,7 @@ def build_elevenlabs_prompt(
 
     # 강한 감정만 명시 (intensity 3 이상)
     if emotion_label and intensity is not None and intensity >= 3:
-        level = ["", "", "드러나는", "강한", "폭발적인"][max(0, min(4, intensity - 1))]
+        level = {3: "드러나는", 4: "강한", 5: "폭발적인"}.get(intensity, "")
         parts.append(f"{level} {emotion_label}.")
 
     return "\n".join(parts)

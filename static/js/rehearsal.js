@@ -1,18 +1,4 @@
 // ── 5단계: 음성 생성 ──────────────────────────────────────
-// 생성 결과 상태 반영 + 진행바 업데이트
-// Remap: server returns 0-based subset indices → original appState.parsedScript indices via scopeStart
-function _applyGenerationResult(data, scopeStart, total) {
-  appState.sessionId = data.session_id;
-  appState.audioMap = {};
-  Object.entries(data.audio_map).forEach(([subIdx, url]) => {
-    appState.audioMap[String(scopeStart + parseInt(subIdx))] = url;
-  });
-  const generatedCount = Object.keys(appState.audioMap).length;
-  const pct = total > 0 ? Math.round(generatedCount / total * 100) : 100;
-  document.getElementById('gen-progress').style.width = `${pct}%`;
-  document.getElementById('gen-status').textContent = `${generatedCount}/${total}개 음성 생성 완료`;
-}
-
 async function startGeneration() {
   gotoStep(4);
 
@@ -39,18 +25,29 @@ async function startGeneration() {
   }
 
   document.getElementById('gen-status').textContent = '서버에 요청 중...';
+  appState.audioMap = {};
 
   try {
-    const data = await _apiGenerateRehearsal({
+    let generated = 0;
+    for await (const event of _apiGenerateRehearsalSSE({
       lines: scopedLines,
       voice_assignments: appState.voiceAssignments,
       user_character: '',
       character_descriptions: appState.parsedScript.character_descriptions || {},
-    });
-    _applyGenerationResult(data, scopeStart, total);
+    })) {
+      if (event.type === 'line') {
+        appState.audioMap[String(scopeStart + parseInt(event.idx))] = event.url;
+        generated++;
+        const pct = total > 0 ? Math.round(generated / total * 100) : 100;
+        document.getElementById('gen-progress').style.width = `${pct}%`;
+        document.getElementById('gen-status').textContent = `${generated}/${total}개 음성 생성 중...`;
+      } else if (event.type === 'done') {
+        appState.sessionId = event.session_id;
+        document.getElementById('gen-status').textContent = `${generated}/${total}개 음성 생성 완료`;
+      }
+    }
 
     await saveCurrentSession();
-
     setTimeout(() => gotoStep(5), 800);
 
   } catch (e) {

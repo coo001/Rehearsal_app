@@ -5,18 +5,20 @@ POST /api/generate-line       — 단일 줄 생성 (미리듣기 포함)
 DELETE /api/session/{id}      — 세션 파일 정리
 """
 
+import asyncio
+import json
 import logging
 import uuid
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 
 logger = logging.getLogger(__name__)
 
 from app.schemas.requests import GenerateRehearsalRequest, SingleLineRequest
 from app.schemas.responses import ElevenLabsCheckResponse, GenerateLineResponse, GenerateRehearsalResponse, MessageResponse
 from app.services.audio_storage import audio_exists, audio_get_url
-from app.services.job_runner import run_job
 from app.services.tts import check_elevenlabs_auth, delete_session_files, generate_tts_file
 from app.utils.audio_paths import rehearsal_audio_path, single_line_audio_path
 from app.core.config import TTS_PROVIDER
@@ -62,7 +64,7 @@ def _build_instructions(line: dict, char_desc: str | None) -> str:
     )
 
 
-@router.post("/generate-rehearsal", response_model=GenerateRehearsalResponse)
+@router.post("/generate-rehearsal")
 async def generate_rehearsal(req: GenerateRehearsalRequest):
     session_id = req.session_id or str(uuid.uuid4())
 
@@ -71,7 +73,6 @@ async def generate_rehearsal(req: GenerateRehearsalRequest):
     logger.info("[Gen] generate-rehearsal 시작 — total_lines=%d, ai_dialogue=%d, session=%s",
                 total_lines, dialogue_lines, session_id[:8])
 
-    # 자격 있는 라인 사전 필터
     pending: list[tuple[int, dict]] = []
     for idx, line in enumerate(req.lines):
         if line.type != "dialogue":
@@ -95,7 +96,6 @@ async def generate_rehearsal(req: GenerateRehearsalRequest):
             if audio_exists(audio_path):
                 return str(idx), audio_get_url(audio_path)
 
-            # ElevenLabs prosody 개선을 위해 인접 대사 텍스트 추출
             prev_text: str | None = None
             next_text: str | None = None
             if TTS_PROVIDER == "elevenlabs":
@@ -125,34 +125,38 @@ async def generate_rehearsal(req: GenerateRehearsalRequest):
             logger.warning("[Gen] line %d 음성 생성 실패: %s", idx, e)
             return None
 
-    def _run_generate() -> dict:
-        audio_map: dict = {}
+    def _sse(payload: dict) -> str:
+        return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+    async def event_stream():
+        generated = 0
         if pending:
             # MAX_WORKERS=4 — ElevenLabs rate limit 초과 시 2로 낮출 것
-            with ThreadPoolExecutor(max_workers=4) as executor:
-                futures = {executor.submit(_generate_one, idx, line): idx for idx, line in pending}
-                for future in as_completed(futures):
-                    result = future.result()
-                    if result is not None:
-                        audio_map[result[0]] = result[1]
-        return {
+            executor = ThreadPoolExecutor(max_workers=4)
+            aio_futures = [
+                asyncio.wrap_future(executor.submit(_generate_one, idx, line))
+                for idx, line in pending
+            ]
+            for coro in asyncio.as_completed(aio_futures):
+                result = await coro
+                if result is not None:
+                    idx_str, url = result
+                    generated += 1
+                    yield _sse({"type": "line", "idx": idx_str, "url": url})
+            executor.shutdown(wait=False)
+        yield _sse({
+            "type": "done",
             "session_id": session_id,
-            "audio_map": audio_map,
             "total_lines": total_lines,
+            "generated": generated,
             "user_character": req.user_character,
-        }
+        })
 
-    _, data = run_job(
-        "generate_rehearsal",
-        _run_generate,
-        session_id=session_id,
-        result_summary=lambda d: {
-            "session_id": d["session_id"],
-            "audio_count": len(d["audio_map"]),
-            "total_lines": d["total_lines"],
-        },
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
-    return json_response(data)
 
 
 @router.post("/generate-line", response_model=GenerateLineResponse)
@@ -168,11 +172,7 @@ async def generate_single_line(req: SingleLineRequest):
 
     if not audio_exists(audio_path):
         try:
-            line_hints = {
-                "pronunciation_hints": req.pronunciation_hints,
-                "normalization_hints": req.normalization_hints,
-            }
-            generate_tts_file(req.voice_id, req.text, instructions, audio_path, intensity=req.intensity or 2, line=line_hints)
+            generate_tts_file(req.voice_id, req.text, instructions, audio_path, intensity=req.intensity or 2, line=req.model_dump())
         except Exception as e:
             raise HTTPException(500, f"음성 생성 실패: {e}")
 
