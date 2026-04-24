@@ -21,32 +21,33 @@ def build_tts_instructions(
     emotion: str | None = None,     # 하위 호환: 구형 단일 emotion 문자열
     avoid: str | None = None,       # 금지할 읽기 방식
 ) -> str:
-    # ElevenLabs 경로와 동일한 간결한 구조 유지
     # char_desc / tactics는 analytical → TTS 기계적 읽기 유발 → 제거
     # 감정은 intensity 3 이상만 명시 (기본은 절제)
-    parts = ["상대를 보며 직접 말하듯. 읽지 말고, 생각이 말이 되게."]
+    # 앵커 문장은 영어로 — gpt-4o-mini-tts가 영어 지시에 더 안정적으로 반응
+    parts = ["Speak directly to the other person. Don't read — let thoughts become words."]
 
     if beat_goal:
-        parts.append(f"원하는 것: {beat_goal}")
+        parts.append(f"Goal: {beat_goal}")
 
     if subtext:
-        parts.append(f"말 아래: {subtext}")
+        parts.append(f"Subtext: {subtext}")
 
     # intensity 3 이상만 감정 명시 (기본 2는 절제로 간주)
     if emotion_label and intensity is not None and intensity >= 3:
-        level = ["", "", "드러나는", "강한", "폭발적인"][max(0, min(4, intensity - 1))]
-        parts.append(f"{level} {emotion_label}.")
+        level = ["", "", "emerging", "strong", "explosive"][max(0, min(4, intensity - 1))]
+        parts.append(f"Emotion: {level} {emotion_label}.")
     elif emotion and not emotion_label and intensity is not None and intensity >= 3:
-        parts.append(emotion)
+        parts.append(f"Emotion: {emotion}")
 
     if tts_direction:
         parts.append(tts_direction)
 
     if tempo and tempo != "보통":
-        parts.append(tempo)
+        tempo_map = {"느리게": "Slow tempo.", "빠르게": "Fast tempo."}
+        parts.append(tempo_map.get(tempo, tempo))
 
     if avoid:
-        parts.append(f"금지: {avoid}")
+        parts.append(f"Avoid: {avoid}")
 
     return "\n".join(parts)
 
